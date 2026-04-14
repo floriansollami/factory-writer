@@ -11,15 +11,11 @@ ENV UV_LINK_MODE=copy
 WORKDIR /app
 
 # Installation des dépendances sans copier le code complet
-COPY pyproject.toml .
-# Normalement uv.lock est généré, s'il existe on peut le copier.
-# COPY uv.lock .
+COPY pyproject.toml uv.lock ./
 
-# RUN uv pip install --system . # install for system python inside container
-# Plus proprement avec la fonctionnalité 'uv sync' :
 RUN uv venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
-RUN uv pip install -r pyproject.toml
+RUN uv pip compile pyproject.toml -o requirements.txt && uv pip install -r requirements.txt
 
 # --- Étape 2 : Image finale (Distroless / Slim) ---
 FROM python:3.12-slim
