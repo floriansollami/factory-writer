@@ -5,8 +5,8 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.application.use_cases.ingest_style_guide import trigger_style_ingestion
-from api.domain.schemas.cloud_event import StorageObjectData
 from api.infrastructure.database.session import get_db_session
+from api.presentation.schemas.eventarc_payload import StorageObjectData
 
 logger = structlog.get_logger(__name__)
 
