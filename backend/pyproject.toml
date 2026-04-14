@@ -1,0 +1,46 @@
+[project]
+name = "factory-writer"
+version = "0.1.0"
+description = "Moteur central Factory Writer"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "pydantic",
+    "pydantic-settings",
+    "sqlalchemy",
+    "alembic",
+    "psycopg[binary,pool]",
+    "temporalio",
+    "litellm",
+    "google-cloud-documentai",
+    "google-cloud-storage",
+    "greenlet>=3.4.0",
+    "structlog",
+    "asgi-correlation-id",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff",
+    "mypy",
+    "pytest",
+    "pytest-asyncio",
+    "httpx",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"] # Imports triés (I), Pyflakes (F), pycodestyle (E), pyupgrade (UP), bugbear (B), flake8-simplify (SIM)
+ignore = []
+
+[tool.mypy]
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true

@@ -1,0 +1,20 @@
+# Environments
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# OS & IDE
+.DS_Store
+.vscode/
+.idea/
+
+# Terraform / GCP
+.terraform/
+*.tfstate
+*.tfstate.backup

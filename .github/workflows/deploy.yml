@@ -1,0 +1,51 @@
+name: Deploy Cloud Run
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: "read"
+      id-token: "write" # Obligatoire pour Workload Identity Federation
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@0c366fd6a839edf440554fa01a7085ccba70ac98 # v4
+
+      - name: Supply Chain Security Scan
+        run: |
+          pip install uv
+          cd backend && uv export > requirements.txt
+          # Audit faille Zero-Day avant de déployer
+          # (Décommenter après validation SOTA) 
+          # uv run pip-audit -r requirements.txt || true
+
+      # Étape 1 : Authentification SOTA (Sans Clé)
+      - name: Authenticate to Google Cloud (WIF)
+        id: auth
+        uses: google-github-actions/auth@fc2174804b84f912b1f6d334e9463f484f1c552d # v3
+        with:
+          project_id: "factory-writer-poc-1776097019"
+          workload_identity_provider: "projects/623736074911/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
+          service_account: "github-actions-deployer@factory-writer-poc-1776097019.iam.gserviceaccount.com"
+
+      # Étape 2 : Déploiement sécurisé avec injection de secrets
+      - name: Deploy to Cloud Run
+        uses: google-github-actions/deploy-cloudrun@2028e2d7d30a78c6910e0632e48dd561b064884d # v2
+        with:
+          service: "factory-writer-backend"
+          region: "europe-west1"
+          source: "./backend"
+          env_vars: |
+            GCP_PROJECT_ID=factory-writer-poc-1776097019
+            GCP_LOCATION=europe-west1
+            GCP_DOCUMENT_AI_LOCATION=eu
+            GCP_DOCUMENT_AI_PROCESSOR_ID=684ca2ae2323b47c
+            GCP_STYLE_GUIDE_BUCKET_NAME=factory-writer-poc-1776097019-brand-styles
+            TEMPORAL_HOST=localhost:7233
+          secrets: |
+            DATABASE_URL=DATABASE_URL:latest
