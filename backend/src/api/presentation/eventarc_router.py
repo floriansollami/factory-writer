@@ -1,9 +1,12 @@
+from typing import Any
+
 import structlog
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.application.use_cases.ingest_style_guide import trigger_style_ingestion
 from api.domain.schemas.cloud_event import StorageObjectData
-from api.infrastructure.database.session import AsyncSession, get_db_session
+from api.infrastructure.database.session import get_db_session
 
 logger = structlog.get_logger(__name__)
 
@@ -15,11 +18,12 @@ async def handle_style_guide_eventarc(
     request: Request,
     payload: StorageObjectData,
     ce_type: str = Header(
-        None, description="Type d'évènement CloudEvent (ex: google.cloud.storage.object.v1.finalized)"
+        None,
+        description="Type d'évènement CloudEvent (ex: google.cloud.storage.object.v1.finalized)",
     ),
     ce_id: str = Header(None, description="Identifiant unique de CloudEvent"),
     session: AsyncSession = Depends(get_db_session),
-):
+) -> dict[str, Any]:
     """
     Webhook d'entrée appelé par Google Eventarc.
     Strictement lié à l'API Eventarc: Pydantic filtre et valide le JSON Payload de Storage.

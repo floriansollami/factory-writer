@@ -1,5 +1,3 @@
-from typing import Any
-
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -18,4 +16,3 @@ class StorageObjectData(BaseModel):
         alias="contentType", default=None, description="Type MIME (ex: application/pdf)."
     )
     # Les autres informations comme generation, metageneration, timeCreated sont volontairement ignorées.
-

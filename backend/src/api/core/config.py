@@ -24,7 +24,8 @@ class Settings(BaseSettings):
 
     # DB SOTA 2026: psycopg async natif (Injectée par GCP Secret Manager)
     DATABASE_URL: str = Field(
-        description="URL de connexion à Postgres, injectée dynamiquement par le Secret Manager"
+        default="",
+        description="URL de connexion à Postgres, injectée dynamiquement par le Secret Manager",
     )
 
     # Temporal

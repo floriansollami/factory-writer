@@ -36,7 +36,7 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"] # Imports triés (I), Pyflakes (F), pycodestyle (E), pyupgrade (UP), bugbear (B), flake8-simplify (SIM)
-ignore = []
+ignore = ["E501", "B008"]
 
 [tool.mypy]
 strict = true

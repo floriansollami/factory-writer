@@ -1,3 +1,4 @@
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 import structlog
@@ -7,6 +8,7 @@ from fastapi import FastAPI
 from api.core.config import settings
 from api.core.logger import setup_logging
 from api.infrastructure.database.session import engine
+from api.presentation.eventarc_router import router as eventarc_router
 
 # Interception globale stdlib -> Structlog
 setup_logging()
@@ -17,7 +19,7 @@ logger = structlog.get_logger(__name__)
 # Dans les anciens langages, on devait créer deux fonctions séparées (onStartup() et onShutdown()).
 # L'immense avantage du yield en Python, c'est que la phase d'allumage et la phase d'extinction partagent la même fonction.
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """
     L'équivalent du OnApplicationShutdown de NestJS.
     S'exécute autour de la durée de vie globale du serveur.
@@ -49,9 +51,5 @@ async def health_check() -> dict[str, str]:
     return {"status": "ok", "app": settings.APP_NAME, "version": settings.VERSION}
 
 
-from api.presentation.eventarc_router import router as eventarc_router
-
 # Inclusion du routeur dédié au webhooks eventarc SOTA 2026
-app.include_router(
-    eventarc_router, prefix="/webhooks/eventarc", tags=["Webhooks", "Eventarc"]
-)
+app.include_router(eventarc_router, prefix="/webhooks/eventarc", tags=["Webhooks", "Eventarc"])

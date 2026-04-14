@@ -2,7 +2,6 @@ import logging
 import sys
 
 import structlog
-from asgi_correlation_id import correlation_id
 
 from api.core.config import settings
 
@@ -12,10 +11,10 @@ def setup_logging() -> None:
     Configure Structlog en SOTA 2026.
     Intercepte le logger natif (Uvicorn/FastAPI) et injecte le Correlation ID via contextvars.
     """
-    
+
     # Processeurs partagés entre le JSON (Prod) et la Console (Dév)
     shared_processors: list[structlog.types.Processor] = [
-        structlog.contextvars.merge_contextvars, # SOTA 2026: Injecte l'ID asynchrone
+        structlog.contextvars.merge_contextvars,  # SOTA 2026: Injecte l'ID asynchrone
         structlog.stdlib.add_logger_name,
         structlog.stdlib.add_log_level,
         structlog.processors.TimeStamper(fmt="iso"),
@@ -24,7 +23,10 @@ def setup_logging() -> None:
         structlog.processors.UnicodeDecoder(),
     ]
 
+    from typing import Any
+
     # Rendu dynamique (DEBUG = Console humaine claire, PROD = JSON pur Machine)
+    renderer: Any = None
     if settings.DEBUG:
         renderer = structlog.dev.ConsoleRenderer(colors=True)
     else:
@@ -52,7 +54,7 @@ def setup_logging() -> None:
 
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(formatter)
-    
+
     # On force le root logger à utiliser notre handler
     root_logger = logging.getLogger()
     root_logger.handlers = [handler]
@@ -60,4 +62,3 @@ def setup_logging() -> None:
 
     # On fait taire les logs inintéressants de bases de données ou Uvicorn si besoin
     logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
-
