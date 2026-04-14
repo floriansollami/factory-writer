@@ -10,6 +10,40 @@ Les meilleures pratiques 2026 pour les pipelines IA basés sur Temporal exigent 
 3. **The Saga Pattern & Compensation :** S'appuie sur la gestion native des exceptions Python (`try...except`) avec un `workflow.new_detached_cancel_scope()` pour assurer un *rollback* métier.
 4. **Human-in-the-Loop Asynchrone :** Utilisation des Signals Temporal pour mettre durablement en pause le workflow (`Wait`).
 
+### Concepts Clés : Workflows vs Activités
+
+Pour bien comprendre Temporal, il faut séparer le **Cerveau** (Workflow) et les **Muscles** (Activités) :
+
+```mermaid
+flowchart TD
+    subgraph WFW["Le Workflow (Le Cerveau Orchestrateur)"]
+        direction TB
+        W1["🟢 Démarrage <br/> (Déterministe & Durable)"] --> W2{"Décision Métier : <br/> Est-ce OK ?"}
+        W2 -- "Oui" --> W3["Attendre Signal Humain <br/> (Suspend le code)"]
+        W2 -- "Non" --> W4["Lancer Procédure de Rollback <br/> (Saga Pattern)"]
+        
+        note1> "Règles SOTA :<br/>1. Ne JAMAIS faire d'appels réseau, API ou BDD ici.<br/>2. Ne JAMAIS faire de dates locales, aléatoire.<br/>3. Décide QUOI faire et QUAND recommencer."]
+    end
+
+    subgraph ACT["Les Activités (Les Muscles / Actions Externes)"]
+        direction TB
+        A1["🗄️ PostgreSQL (I/O)"]
+        A2["📄 Document AI (API GCP)"]
+        A3["🤖 LiteLLM (Inférence)"]
+        
+        note2> "Règles SOTA :<br/>1. TOUS les appels réseau/BDD sont des activités.<br/>2. DOIVENT être Idempotentes.<br/>3. Temporel réessaye cette case automatiquement si elle throw Timeout/Error."]
+    end
+
+    %% Interactions
+    W1 -. "1. workflow.execute_activity() <br/> 'Va faire cette action externe'" .-> A1
+    A1 -. "2. Réponse ou Exception" .-> W1
+    
+    W4 -. "3. Lance rollback en BDD" .-> A1
+```
+
+- **Le Workflow** est immortel. S'il plante au milieu, quand le serveur redémarre il "rejoue" l'historique et reprend exactement là où il s'était arrêté sans relancer les activités déjà complétées.
+- **L'Activité** est l'ouvrier éphémère. Si LiteLLM timeout, elle crashe, et le Workflow lui dit simplement "Recommence" selon la `RetryPolicy` (ex: 3 fois maximum avec backoff exponentiel).
+
 ---
 
 ## Modélisation du "StyleGuideIngestionWorkflow"
