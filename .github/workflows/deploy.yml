@@ -62,6 +62,7 @@ jobs:
             GCP__LOCATION=europe-west1
             TEMPORAL__ADDRESS=factory-writer-poc.waxwe.tmprl.cloud:7233
             TEMPORAL__NAMESPACE=factory-writer-poc.waxwe
+            DB__URL=sqlite+aiosqlite:///:memory:
           secrets: |
             TEMPORAL__API_KEY=temporal-api-key:latest
 
@@ -74,5 +75,5 @@ jobs:
             --project="factory-writer-poc-1776097019" \
             --command=python \
             --args=-m,src.temporal.worker \
-            --set-env-vars="GCP__PROJECT_ID=factory-writer-poc-1776097019,GCP__LOCATION=europe-west1,TEMPORAL__ADDRESS=factory-writer-poc.waxwe.tmprl.cloud:7233,TEMPORAL__NAMESPACE=factory-writer-poc.waxwe" \
+            --set-env-vars="GCP__PROJECT_ID=factory-writer-poc-1776097019,GCP__LOCATION=europe-west1,TEMPORAL__ADDRESS=factory-writer-poc.waxwe.tmprl.cloud:7233,TEMPORAL__NAMESPACE=factory-writer-poc.waxwe,DB__URL=sqlite+aiosqlite:///:memory:" \
             --set-secrets="TEMPORAL__API_KEY=temporal-api-key:latest"
