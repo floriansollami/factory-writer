@@ -57,14 +57,15 @@ jobs:
             --command=uvicorn
             --args=src.main:app,--host,0.0.0.0,--port,8080
             --allow-unauthenticated
+            --add-cloudsql-instances="factory-writer-poc-1776097019:europe-west1:factory-writer-db"
           env_vars: |
             GCP__PROJECT_ID=factory-writer-poc-1776097019
             GCP__LOCATION=europe-west1
             TEMPORAL__ADDRESS=factory-writer-poc.waxwe.tmprl.cloud:7233
             TEMPORAL__NAMESPACE=factory-writer-poc.waxwe
-            DB__URL=sqlite+aiosqlite:///:memory:
           secrets: |
             TEMPORAL__API_KEY=temporal-api-key:latest
+            DB__URL=db-url:latest
 
       # Étape 4 : Déploiement Cloud Run Worker Pool (Temporal)
       - name: Deploy Temporal Worker to Cloud Run Worker Pools
@@ -75,5 +76,6 @@ jobs:
             --project="factory-writer-poc-1776097019" \
             --command=python \
             --args=-m,src.temporal.worker \
-            --set-env-vars="GCP__PROJECT_ID=factory-writer-poc-1776097019,GCP__LOCATION=europe-west1,TEMPORAL__ADDRESS=factory-writer-poc.waxwe.tmprl.cloud:7233,TEMPORAL__NAMESPACE=factory-writer-poc.waxwe,DB__URL=sqlite+aiosqlite:///:memory:" \
-            --set-secrets="TEMPORAL__API_KEY=temporal-api-key:latest"
+            --add-cloudsql-instances="factory-writer-poc-1776097019:europe-west1:factory-writer-db" \
+            --set-env-vars="GCP__PROJECT_ID=factory-writer-poc-1776097019,GCP__LOCATION=europe-west1,TEMPORAL__ADDRESS=factory-writer-poc.waxwe.tmprl.cloud:7233,TEMPORAL__NAMESPACE=factory-writer-poc.waxwe" \
+            --set-secrets="TEMPORAL__API_KEY=temporal-api-key:latest,DB__URL=db-url:latest"
