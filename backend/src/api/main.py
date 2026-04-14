@@ -49,5 +49,9 @@ async def health_check() -> dict[str, str]:
     return {"status": "ok", "app": settings.APP_NAME, "version": settings.VERSION}
 
 
-# Les routeurs des bounded contexts (presentation) seront inclus ici.
-# ex: app.include_router(style_guide_router, prefix="/api/v1/style-guide", tags=["Style Guide"])
+from api.presentation.eventarc_router import router as eventarc_router
+
+# Inclusion du routeur dédié au webhooks eventarc SOTA 2026
+app.include_router(
+    eventarc_router, prefix="/webhooks/eventarc", tags=["Webhooks", "Eventarc"]
+)
