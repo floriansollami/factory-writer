@@ -70,7 +70,7 @@ jobs:
       # Étape 4 : Déploiement Cloud Run Worker Pool (Temporal)
       - name: Deploy Temporal Worker to Cloud Run Worker Pools
         run: |
-          gcloud beta run worker-pools deploy factory-writer-worker \
+          gcloud beta run worker-pools deploy factory-writer-worker --quiet \
             --image="europe-west1-docker.pkg.dev/factory-writer-poc-1776097019/cloud-run-source-deploy/factory-writer:${{ github.sha }}" \
             --region="europe-west1" \
             --project="factory-writer-poc-1776097019" \
