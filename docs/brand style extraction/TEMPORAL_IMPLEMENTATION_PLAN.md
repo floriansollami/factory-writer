@@ -215,9 +215,9 @@ Cette Checklist ordonnée permet à l'Agent IA d'effectuer le développement ét
   - [x] Connecter/Créer le Namespace sur Temporal Cloud (SaaS). -> `factory-writer-poc.waxwe`
   - [x] Configurer l'authentification : **API Key** (Mode POC, plus rapide).
   - [x] **Garantir l'asymétrie nulle** : API Key partagée entre Client et Worker via `.env` et Google Secret Manager plus tard.
-- **[ ] 2. Setup du Monorepo Python :**
-  - [ ] Ajouter la dépendance `temporalio` via Poetry.
-  - [ ] Créer la structure de dossiers `backend/src/temporal/workflows` et `backend/src/temporal/activities`.
+- **[x] 2. Setup du Monorepo Python :**
+  - [x] Ajouter la dépendance `temporalio` via Poetry.
+  - [x] Créer la structure de dossiers `backend/src/temporal/workflows` et `backend/src/temporal/activities`.
   - [ ] Mettre à jour `backend/src/domain` pour contenir les Input/Output Pydantic v2 nécessaires au Workflow.
 - **[ ] 3. Implémentation du Workflow :**
   - [ ] Coder la classe `StyleGuideIngestionWorkflow` en suivant les principes Actor/Pydantic/Saga définis dans le pseudo-code.
@@ -226,12 +226,12 @@ Cette Checklist ordonnée permet à l'Agent IA d'effectuer le développement ét
   - [ ] Coder `A2`, `A3` et `A4` : Interaction GCP Document AI (batch trigger, long-polling métier, insertion chunks).
   - [ ] Coder `A5` : Appel à `LiteLLM` avec Structured Output et bulk SQL INSERT.
 - **[ ] 5. Intégration du Client Partagé (FastAPI + Worker) :**
-  - [ ] Écrire `backend/src/temporal/client.py` exposant `get_temporal_client()` configuré avec **API Key** et l'injection du **pydantic_data_converter**.
+  - [x] Écrire `backend/src/temporal/client.py` exposant `get_temporal_client()` configuré avec **API Key** et l'injection du **pydantic_data_converter**.
   - [ ] Appeler `get_temporal_client()` dans la lifecycle de FastAPI.
   - [ ] Remplacer la logique actuelle du Eventarc Webhook Use Case pour faire un `client.start_workflow(...)` asynchrone.
-- **[ ] 6. Câblage du Worker de Démarrage :**
-  - [ ] Écrire `backend/src/temporal/worker.py` (appeler `get_temporal_client()`, configurer la Task Queue, appeler `await worker.run()`).
-- **[ ] 7. Ops / CI-CD :**
-  - [ ] Valider / Mettre à jour le `Dockerfile` pour supporter les variables d'environnement.
-  - [ ] Configurer l'infrastructure du Cloud Run Worker Pool pour le worker Temporal.
-  - [ ] Écrire le fichier `.github/workflows/deploy.yml` automatisant le déploiement CI/CD de l'API (Cloud Run) et du Worker (Cloud Run Worker Pool).
+- **[x] 6. Câblage du Worker de Démarrage :**
+  - [x] Écrire `backend/src/temporal/worker.py` (appeler `get_temporal_client()`, configurer la Task Queue, appeler `await worker.run()`).
+- **[x] 7. Ops / CI-CD :**
+  - [x] Valider / Mettre à jour le `Dockerfile` pour supporter les variables d'environnement.
+  - [x] Configurer l'infrastructure du Cloud Run Worker Pool pour le worker Temporal.
+  - [x] Écrire le fichier `.github/workflows/deploy.yml` automatisant le déploiement CI/CD de l'API (Cloud Run) et du Worker (Cloud Run Worker Pool).
