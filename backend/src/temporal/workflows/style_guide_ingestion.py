@@ -1,4 +1,5 @@
 from datetime import timedelta
+
 from temporalio import workflow
 from temporalio.common import RetryPolicy
 
@@ -11,21 +12,21 @@ from domain.temporal_models import StyleGuideIngestionInput, StyleGuideIngestion
 # erreurs de non-déterminisme pures Python, ou on peut juste les importer dynamiquement.
 with workflow.unsafe.imports_passed_through():
     from temporal.activities.style_guide_activities import (
-        update_source_status_activity,
-        update_source_status_erreur_activity,
-        trigger_docai_batch_activity,
+        extract_rules_litellm_activity,
         poll_docai_completion_activity,
         process_layout_chunks_activity,
-        extract_rules_litellm_activity,
         promote_style_pack_activity,
+        trigger_docai_batch_activity,
+        update_source_status_activity,
+        update_source_status_erreur_activity,
     )
 
 
 @workflow.defn(name="StyleGuideIngestionWorkflow")
 class StyleGuideIngestionWorkflow:
-    def __init__(self):
+    def __init__(self) -> None:
         self.is_approved: bool | None = None
-        self.compensations = []
+        self.compensations: list[str] = []
 
     @workflow.run
     async def run(self, input: StyleGuideIngestionInput) -> StyleGuideIngestionOutput:
@@ -66,18 +67,21 @@ class StyleGuideIngestionWorkflow:
                 extract_rules_litellm_activity,
                 args=[chunk_ids],
                 start_to_close_timeout=timedelta(minutes=5),
-                retry_policy=RetryPolicy(maximum_attempts=3)
+                retry_policy=RetryPolicy(maximum_attempts=3),
             )
 
             # 6. Attente Asynchrone Approbation Humaine (Signal)
             # Le workflow va se suspendre nativement et ne consommer aucune ressource !
             workflow.logger.info("⏳ Waiting for human approval signal...")
-            approval_decision = await workflow.wait_condition(
-                lambda: self.is_approved is not None, timeout=timedelta(days=7)
-            )
+            try:
+                await workflow.wait_condition(
+                    lambda: self.is_approved is not None, timeout=timedelta(days=7)
+                )
+            except Exception: # Timeout ou autre
+                pass
 
-            if not approval_decision:
-                raise Exception("L'expert de marque (Sophie) a rejeté le Pack Draft.")
+            if not self.is_approved:
+                raise Exception("L'expert de marque (Sophie) a rejeté le Pack Draft ou timeout expiré.")
 
             # 7. Promotion en Pack ACTIF
             await workflow.execute_activity(
@@ -92,19 +96,18 @@ class StyleGuideIngestionWorkflow:
         except Exception as e:
             workflow.logger.error(f"❌ Workflow failed: {str(e)}. Triggering SAGA Compensations.")
             # === Saga Pattern Compensation ===
-            with workflow.new_detached_cancel_scope():
-                for comp in reversed(self.compensations):
-                    if comp == "update_status_erreur":
-                        await workflow.execute_activity(
-                            update_source_status_erreur_activity,
-                            args=[input.source_id],
-                            start_to_close_timeout=timedelta(minutes=1),
-                        )
+            for comp in reversed(self.compensations):
+                if comp == "update_status_erreur":
+                    await workflow.execute_activity(
+                        update_source_status_erreur_activity,
+                        args=[input.source_id],
+                        start_to_close_timeout=timedelta(minutes=1),
+                    )
             # On relance l'erreur pour que l'historique Temporal l'affiche en Failed
             raise e
 
     @workflow.signal
-    def approve_pack(self, approved: bool):
+    def approve_pack(self, approved: bool) -> None:
         """
         Signal Temporal. Peut être appelé via un bouton dans le back-office.
         """

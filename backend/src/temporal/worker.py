@@ -4,17 +4,18 @@ import logging
 from temporalio import activity
 from temporalio.worker import Worker
 
-from temporal.client import get_temporal_client
-from temporal.workflows.style_guide_ingestion import StyleGuideIngestionWorkflow
 from temporal.activities.style_guide_activities import (
-    update_source_status_activity,
-    update_source_status_erreur_activity,
-    trigger_docai_batch_activity,
+    extract_rules_litellm_activity,
     poll_docai_completion_activity,
     process_layout_chunks_activity,
-    extract_rules_litellm_activity,
     promote_style_pack_activity,
+    trigger_docai_batch_activity,
+    update_source_status_activity,
+    update_source_status_erreur_activity,
 )
+from temporal.client import get_temporal_client
+from temporal.workflows.style_guide_ingestion import StyleGuideIngestionWorkflow
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -55,7 +56,7 @@ async def main() -> None:
     )
 
     logger.info("🚀 Worker Temporal initialisé et en écoute sur `style-guide-queue`...")
-    
+
     # Étape 3 : Polling continu
     await worker.run()
 

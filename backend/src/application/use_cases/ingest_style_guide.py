@@ -54,7 +54,7 @@ async def trigger_style_ingestion(
 
     # 5. Déclenchement de l'Orchestrateur Temporal (SOTA 2026 - Fire and Forget)
     temporal_client = await get_temporal_client()
-    
+
     workflow_id = f"style-guide-ingest-{source.id}"
     logger.info(
         "🚀 Démarrage asynchrone du StyleGuideIngestionWorkflow",
@@ -63,12 +63,12 @@ async def trigger_style_ingestion(
         target_uri=source.uri_fichier,
         temporal_host=settings.temporal.address,
     )
-    
+
     await temporal_client.start_workflow(
         "StyleGuideIngestionWorkflow",
         StyleGuideIngestionInput(source_id=str(source.id), file_uri=source.uri_fichier),
         id=workflow_id,
-        task_queue="style-guide-queue"
+        task_queue="style-guide-queue",
     )
 
     return {"status": "success", "source_id": str(source.id), "uri": source.uri_fichier}
