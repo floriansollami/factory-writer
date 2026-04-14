@@ -1,0 +1,49 @@
+erDiagram
+    source_guide_style ||--o{ fragment_style : "est decoupe en"
+    source_guide_style ||--o{ pack_style : "genere"
+    pack_style ||--o{ regle_style : "contient"
+    fragment_style ||--o{ regle_style : "justifie"
+    taxonomie_produit ||--o{ regle_style : "cible"
+
+    source_guide_style {
+        uuid id PK
+        varchar uri_fichier
+        enum_statut_source statut
+        timestamptz uploade_le
+    }
+
+    fragment_style {
+        uuid id PK
+        uuid source_id FK
+        integer index_fragment
+        varchar titre_section
+        text contenu
+    }
+
+    pack_style {
+        uuid id PK
+        uuid source_id FK
+        varchar label_version
+        enum_statut_pack statut
+        boolean est_actif
+        timestamptz cree_le
+        timestamptz approuve_le
+    }
+
+    taxonomie_produit {
+        uuid id PK
+        varchar code_famille
+        varchar libelle_fr
+        uuid parent_id FK
+    }
+
+    regle_style {
+        uuid id PK
+        uuid pack_id FK
+        uuid fragment_source_id FK
+        uuid taxonomie_produit_id FK
+        enum_type_regle type_regle
+        enum_niveau_contrainte niveau_contrainte
+        text texte_regle
+        boolean est_actif
+    }

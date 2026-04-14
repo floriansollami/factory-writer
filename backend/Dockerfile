@@ -36,5 +36,6 @@ ENV PYTHONPATH="/app/src"
 # Verrouillage final du runtime sur l'UID numérique strict (Security check: CKV_DOCKER_3)
 USER 1000
 
-# Lancement de l'application
-CMD ["sh", "-c", "uvicorn api.main:app --host 0.0.0.0 --port ${PORT}"]
+# Le point d'entrée exécutable sera surchargé par Cloud Run ou GitHub Actions
+# - API: uvicorn src.main:app --host 0.0.0.0 --port ${PORT}
+# - Worker: python -m src.temporal.worker

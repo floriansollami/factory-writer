@@ -16,17 +16,19 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-import os
-import sys
+import os  # noqa: E402
+import sys  # noqa: E402
 
 # SOTA : Configuration du pythonpath pour le monorepo
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src")))
 
-from api.core.config import settings
-from api.infrastructure.database.models import Base
+from core.config import get_settings  # noqa: E402
+from infrastructure.database.models import Base  # noqa: E402
+
+settings = get_settings()
 
 # Injecte dynamiquement l'URL de la base de données SOTA (psycopg3 asynchrone)
-config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+config.set_main_option("sqlalchemy.url", settings.db.url)
 
 target_metadata = Base.metadata
 

@@ -1,4 +1,4 @@
-name: Deploy Cloud Run
+name: Deploy Cloud Run + Temporal Worker
 
 on:
   push:
@@ -33,19 +33,44 @@ jobs:
           workload_identity_provider: "projects/623736074911/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
           service_account: "github-actions-deployer@factory-writer-poc-1776097019.iam.gserviceaccount.com"
 
-      # Étape 2 : Déploiement sécurisé avec injection de secrets
-      - name: Deploy to Cloud Run
+      # Étape 2 : Construction de l'image Docker
+      - name: Setup Google Cloud SDK
+        uses: google-github-actions/setup-gcloud@e427ad8a34f8676edf47cf7d7925499adf3eb74f # v2
+
+      - name: Build and Push Docker Image
+        run: |
+          gcloud auth configure-docker europe-west1-docker.pkg.dev
+          # On s'assure que le repository Artifact Registry existe
+          gcloud artifacts repositories create cloud-run-source-deploy --repository-format=docker --location=europe-west1 || true
+          # Build de l'image
+          docker build -t europe-west1-docker.pkg.dev/factory-writer-poc-1776097019/cloud-run-source-deploy/factory-writer:${{ github.sha }} ./backend
+          docker push europe-west1-docker.pkg.dev/factory-writer-poc-1776097019/cloud-run-source-deploy/factory-writer:${{ github.sha }}
+
+      # Étape 3 : Déploiement Cloud Run (API HTTP)
+      - name: Deploy API to Cloud Run
         uses: google-github-actions/deploy-cloudrun@2028e2d7d30a78c6910e0632e48dd561b064884d # v2
         with:
-          service: "factory-writer-backend"
+          service: "factory-writer-api"
           region: "europe-west1"
-          source: "./backend"
+          image: "europe-west1-docker.pkg.dev/factory-writer-poc-1776097019/cloud-run-source-deploy/factory-writer:${{ github.sha }}"
+          flags: |
+            --command="uvicorn,src.main:app,--host,0.0.0.0,--port,8080"
+            --allow-unauthenticated
           env_vars: |
-            GCP_PROJECT_ID=factory-writer-poc-1776097019
-            GCP_LOCATION=europe-west1
-            GCP_DOCUMENT_AI_LOCATION=eu
-            GCP_DOCUMENT_AI_PROCESSOR_ID=684ca2ae2323b47c
-            GCP_STYLE_GUIDE_BUCKET_NAME=factory-writer-poc-1776097019-brand-styles
-            TEMPORAL_HOST=localhost:7233
+            GCP__PROJECT_ID=factory-writer-poc-1776097019
+            GCP__LOCATION=europe-west1
+            TEMPORAL__ADDRESS=factory-writer-poc.waxwe.tmprl.cloud:7233
+            TEMPORAL__NAMESPACE=factory-writer-poc.waxwe
           secrets: |
-            DATABASE_URL=DATABASE_URL:latest
+            TEMPORAL__API_KEY=temporal-api-key:latest
+
+      # Étape 4 : Déploiement Cloud Run Worker Pool (Temporal)
+      - name: Deploy Temporal Worker to Cloud Run Worker Pools
+        run: |
+          gcloud beta run worker-pools deploy factory-writer-worker \
+            --image="europe-west1-docker.pkg.dev/factory-writer-poc-1776097019/cloud-run-source-deploy/factory-writer:${{ github.sha }}" \
+            --region="europe-west1" \
+            --project="factory-writer-poc-1776097019" \
+            --command="python","-m","src.temporal.worker" \
+            --set-env-vars="GCP__PROJECT_ID=factory-writer-poc-1776097019,GCP__LOCATION=europe-west1,TEMPORAL__ADDRESS=factory-writer-poc.waxwe.tmprl.cloud:7233,TEMPORAL__NAMESPACE=factory-writer-poc.waxwe" \
+            --set-secrets="TEMPORAL__API_KEY=temporal-api-key:latest"

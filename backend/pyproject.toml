@@ -39,6 +39,7 @@ select = ["E", "F", "I", "UP", "B", "SIM"] # Imports triés (I), Pyflakes (F), p
 ignore = ["E501", "B008"]
 
 [tool.mypy]
+mypy_path = "src"
 strict = true
 warn_return_any = true
 warn_unused_configs = true
