@@ -193,24 +193,16 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - role: style-admin
-            worker_pool: factory-writer-style-admin
+          - role: style-guide-ingestion
+            worker_pool: factory-writer-style-guide-ingestion
             scaling: 1
             enabled_poc: true
-          - role: orchestrator
-            worker_pool: factory-writer-orchestrator
-            scaling: 0
-            enabled_poc: false
-          - role: docai
-            worker_pool: factory-writer-docai
-            scaling: 0
-            enabled_poc: false
-          - role: llm
-            worker_pool: factory-writer-llm
-            scaling: 0
-            enabled_poc: false
-          - role: offline-lab
-            worker_pool: factory-writer-offline-lab
+          - role: sku-lifecycle
+            worker_pool: factory-writer-sku-lifecycle
+            scaling: 1
+            enabled_poc: true
+          - role: offline-evaluation
+            worker_pool: factory-writer-offline-evaluation
             scaling: 0
             enabled_poc: false
 

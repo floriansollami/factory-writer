@@ -1,36 +1,16 @@
-import enum
 import uuid
 from datetime import datetime
 
 from sqlalchemy import Boolean, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from factory_writer.domain.style_guide_types import (
+    NiveauContrainte,
+    StatutPack,
+    StatutSource,
+    TypeRegle,
+)
 from factory_writer.infrastructure.database.models.base import BaseModel
-
-
-class StatutSource(enum.StrEnum):
-    EN_ATTENTE = "EN_ATTENTE"
-    EN_COURS = "EN_COURS"
-    TERMINE = "TERMINE"
-    ERREUR = "ERREUR"
-
-
-class StatutPack(enum.StrEnum):
-    BROUILLON = "BROUILLON"
-    APPROUVE = "APPROUVE"
-    ACTIF = "ACTIF"
-
-
-class TypeRegle(enum.StrEnum):
-    VOIX = "VOIX"
-    TON = "TON"
-    FORMATAGE = "FORMATAGE"
-    PROMESSE_INTERDITE = "PROMESSE_INTERDITE"
-
-
-class NiveauContrainte(enum.StrEnum):
-    HARD = "HARD"
-    SOFT = "SOFT"
 
 
 class SourceGuideStyle(BaseModel):
@@ -38,6 +18,14 @@ class SourceGuideStyle(BaseModel):
 
     uri_fichier: Mapped[str] = mapped_column(String, unique=True, index=True)
     statut: Mapped[StatutSource] = mapped_column(default=StatutSource.EN_ATTENTE)
+    bucket_gcs: Mapped[str | None] = mapped_column(String, nullable=True)
+    objet_gcs: Mapped[str | None] = mapped_column(String, nullable=True)
+    generation_gcs: Mapped[str | None] = mapped_column(String, nullable=True)
+    metageneration_gcs: Mapped[str | None] = mapped_column(String, nullable=True)
+    ressource_processeur_docai: Mapped[str | None] = mapped_column(String, nullable=True)
+    operation_docai_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    uri_sortie_docai: Mapped[str | None] = mapped_column(String, nullable=True)
+    dernier_message_erreur: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Relationships
     fragments = relationship("FragmentStyle", back_populates="source", cascade="all, delete-orphan")

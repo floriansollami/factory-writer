@@ -4,7 +4,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from factory_writer.infrastructure.database.models.style_guide import (
+from factory_writer.domain.style_guide_types import (
     NiveauContrainte,
     StatutPack,
     TypeRegle,

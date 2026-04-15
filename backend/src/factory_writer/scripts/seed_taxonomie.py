@@ -1,6 +1,8 @@
 import asyncio
 import logging
 
+from sqlalchemy.exc import SQLAlchemyError
+
 from factory_writer.infrastructure.database.models.style_guide import TaxonomieProduit
 from factory_writer.infrastructure.database.session import get_session_factory
 
@@ -25,9 +27,9 @@ async def seed() -> None:
         try:
             await session.commit()
             logger.info("✅ Taxonomie injectée avec succès.")
-        except Exception as e:
+        except SQLAlchemyError as exc:
             await session.rollback()
-            logger.info(f"⚠️ Erreur ou taxonomie déjà présente : {e}")
+            logger.warning("Erreur pendant le seeding de la taxonomie", exc_info=exc)
 
 
 if __name__ == "__main__":

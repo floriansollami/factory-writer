@@ -9,6 +9,7 @@ class GCPSettings(BaseModel):
     location: str = "europe-west1"
     document_ai_location: str = "eu"
     document_ai_processor_id: str = ""
+    document_ai_processor_version: str | None = None
     style_guide_bucket_name: str = ""
 
 
@@ -16,7 +17,7 @@ class TemporalSettings(BaseModel):
     address: str = "localhost:7233"
     namespace: str = "default"
     api_key: str | None = None
-    worker_role: str = "style-admin"
+    worker_role: str = "style-guide-ingestion"
     deployment_name: str = "factory-writer"
     build_id: str | None = None
 

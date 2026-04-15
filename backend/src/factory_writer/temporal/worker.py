@@ -3,65 +3,42 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from temporalio.common import VersioningBehavior
-from temporalio.worker import Worker, WorkerDeploymentConfig, WorkerDeploymentVersion
-
 from factory_writer.core.config import get_settings
-from factory_writer.temporal.client import get_temporal_client
-from factory_writer.temporal.registry import get_worker_registration
-from factory_writer.temporal.worker_roles import parse_worker_role
+from factory_writer.temporal.common.worker_roles import WorkerRole, parse_worker_role
+from factory_writer.temporal.offline_evaluation.worker import (
+    main as run_offline_evaluation_worker,
+)
+from factory_writer.temporal.sku_lifecycle.worker import (
+    main as run_sku_lifecycle_worker,
+)
+from factory_writer.temporal.style_guide_ingestion.worker import (
+    main as run_style_guide_ingestion_worker,
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-def _build_deployment_config(role_name: str) -> WorkerDeploymentConfig | None:
-    settings = get_settings()
-    build_id = settings.temporal.build_id
-    deployment_name = settings.temporal.deployment_name
-
-    if build_id is None:
-        return None
-
-    return WorkerDeploymentConfig(
-        version=WorkerDeploymentVersion(
-            deployment_name=f"{deployment_name}-{role_name}",
-            build_id=build_id,
-        ),
-        use_worker_versioning=True,
-        default_versioning_behavior=VersioningBehavior.AUTO_UPGRADE,
-    )
-
-
 async def main() -> None:
     settings = get_settings()
     role = parse_worker_role(settings.temporal.worker_role)
-    registration = get_worker_registration(role)
-    client = await get_temporal_client()
-    deployment_config = _build_deployment_config(role.value)
 
-    worker = Worker(
-        client,
-        task_queue=registration.task_queue.value,
-        workflows=list(registration.workflows),
-        activities=list(registration.activities),
-        build_id=settings.temporal.build_id,
-        use_worker_versioning=deployment_config is not None,
-        deployment_config=deployment_config,
-        identity=f"{settings.temporal.deployment_name}-{role.value}",
-    )
+    logger.info("Temporal worker dispatcher starting", extra={"role": role.value})
 
-    logger.info(
-        "Temporal worker started",
-        extra={
-            "role": role.value,
-            "task_queue": registration.task_queue.value,
-            "description": registration.description,
-        },
-    )
+    if role == WorkerRole.SKU_LIFECYCLE:
+        await run_sku_lifecycle_worker()
+        return
 
-    # "Hé, tu as du boulot dans la file XXX ?". (demande en boucle à Temporal)
-    await worker.run()
+    if role == WorkerRole.STYLE_GUIDE_INGESTION:
+        await run_style_guide_ingestion_worker()
+        return
+
+    if role == WorkerRole.OFFLINE_EVALUATION:
+        await run_offline_evaluation_worker()
+        return
+
+    msg = f"Unsupported worker role after parsing: {role.value}"
+    raise RuntimeError(msg)
 
 
 if __name__ == "__main__":
