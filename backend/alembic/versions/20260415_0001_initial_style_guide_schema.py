@@ -48,11 +48,11 @@ niveau_contrainte_enum = sa.Enum(
 
 
 def upgrade() -> None:
-    bind = op.get_bind()
-    statut_source_enum.create(bind, checkfirst=True)
-    statut_pack_enum.create(bind, checkfirst=True)
-    type_regle_enum.create(bind, checkfirst=True)
-    niveau_contrainte_enum.create(bind, checkfirst=True)
+    # Nettoyage des types résiduels d'une éventuelle migration plantée précédemment
+    op.execute("DROP TYPE IF EXISTS statutsource CASCADE")
+    op.execute("DROP TYPE IF EXISTS statutpack CASCADE")
+    op.execute("DROP TYPE IF EXISTS typeregle CASCADE")
+    op.execute("DROP TYPE IF EXISTS niveaucontrainte CASCADE")
 
     op.create_table(
         "source_guide_style",
