@@ -22,8 +22,8 @@ import sys  # noqa: E402
 # SOTA : Configuration du pythonpath pour le monorepo
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src")))
 
-from core.config import get_settings  # noqa: E402
-from infrastructure.database.models import Base  # noqa: E402
+from factory_writer.core.config import get_settings  # noqa: E402
+from factory_writer.infrastructure.database.models import Base  # noqa: E402
 
 settings = get_settings()
 

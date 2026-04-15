@@ -1,83 +1,244 @@
-name: Deploy Cloud Run + Temporal Worker
+name: Deploy Cloud Run API + Temporal Workers
 
 on:
   push:
     branches:
       - main
 
+env:
+  PROJECT_ID: factory-writer-poc-1776097019
+  REGION: europe-west1
+  ARTIFACT_REPOSITORY: cloud-run-source-deploy
+  IMAGE_NAME: factory-writer
+  CLOUDSQL_INSTANCE: factory-writer-poc-1776097019:europe-west1:factory-writer-db
+  TEMPORAL_ADDRESS: factory-writer-poc.waxwe.tmprl.cloud:7233
+  TEMPORAL_NAMESPACE: factory-writer-poc.waxwe
+  TEMPORAL_DEPLOYMENT_NAME: factory-writer
+  GCP_LOCATION: europe-west1
+  GCP_DOCUMENT_AI_LOCATION: eu
+  GCP_DOCUMENT_AI_PROCESSOR_ID: 684ca2ae2323b47c
+  GCP_STYLE_GUIDE_BUCKET_NAME: factory-writer-poc-1776097019-brand-styles
+
 jobs:
-  deploy:
+  quality:
     runs-on: ubuntu-latest
     permissions:
-      contents: "read"
-      id-token: "write" # Obligatoire pour Workload Identity Federation
+      contents: read
 
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@0c366fd6a839edf440554fa01a7085ccba70ac98 # v4
+        uses: actions/checkout@0c366fd6a839edf440554fa01a7085ccba70ac98
 
-      - name: Supply Chain Security Scan
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.11.6"
+          enable-cache: true
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: uv sync --frozen --extra dev
+
+      - name: Lint backend
+        working-directory: backend
+        run: uv run ruff check src/factory_writer alembic
+
+      - name: Type-check backend
+        working-directory: backend
+        run: uv run mypy --explicit-package-bases src/factory_writer alembic
+
+      - name: Compile backend sources
+        working-directory: backend
+        run: uv run python -m compileall src/factory_writer alembic
+
+  build-and-push:
+    runs-on: ubuntu-latest
+    needs: quality
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      image: ${{ steps.meta.outputs.image }}
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@0c366fd6a839edf440554fa01a7085ccba70ac98
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.11.6"
+          enable-cache: true
+
+      - name: Compute image metadata
+        id: meta
         run: |
-          pip install uv
-          cd backend && uv export > requirements.txt
-          # Audit faille Zero-Day avant de déployer
-          # (Décommenter après validation SOTA) 
-          # uv run pip-audit -r requirements.txt || true
+          echo "image=${REGION}-docker.pkg.dev/${PROJECT_ID}/${ARTIFACT_REPOSITORY}/${IMAGE_NAME}:${GITHUB_SHA}" >> "${GITHUB_OUTPUT}"
 
-      # Étape 1 : Authentification SOTA (Sans Clé)
+      - name: Supply chain scan prep
+        run: |
+          cd backend
+          uv export --frozen > requirements.txt
+
       - name: Authenticate to Google Cloud (WIF)
-        id: auth
-        uses: google-github-actions/auth@fc2174804b84f912b1f6d334e9463f484f1c552d # v3
+        uses: google-github-actions/auth@fc2174804b84f912b1f6d334e9463f484f1c552d
         with:
-          project_id: "factory-writer-poc-1776097019"
-          workload_identity_provider: "projects/623736074911/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
-          service_account: "github-actions-deployer@factory-writer-poc-1776097019.iam.gserviceaccount.com"
+          project_id: ${{ env.PROJECT_ID }}
+          workload_identity_provider: projects/623736074911/locations/global/workloadIdentityPools/github-pool/providers/github-provider
+          service_account: github-actions-deployer@factory-writer-poc-1776097019.iam.gserviceaccount.com
 
-      # Étape 2 : Construction de l'image Docker
       - name: Setup Google Cloud SDK
-        uses: google-github-actions/setup-gcloud@e427ad8a34f8676edf47cf7d7925499adf3eb74f # v2
+        uses: google-github-actions/setup-gcloud@e427ad8a34f8676edf47cf7d7925499adf3eb74f
         with:
-          install_components: 'beta'
+          install_components: beta
 
-      - name: Build and Push Docker Image
+      - name: Build and push Docker image
         run: |
-          gcloud auth configure-docker europe-west1-docker.pkg.dev
-          # On s'assure que le repository Artifact Registry existe
-          gcloud artifacts repositories create cloud-run-source-deploy --repository-format=docker --location=europe-west1 || true
-          # Build de l'image
-          docker build -t europe-west1-docker.pkg.dev/factory-writer-poc-1776097019/cloud-run-source-deploy/factory-writer:${{ github.sha }} ./backend
-          docker push europe-west1-docker.pkg.dev/factory-writer-poc-1776097019/cloud-run-source-deploy/factory-writer:${{ github.sha }}
+          gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+          gcloud artifacts repositories create "${ARTIFACT_REPOSITORY}" \
+            --repository-format=docker \
+            --location="${REGION}" || true
+          docker build \
+            -t "${{ steps.meta.outputs.image }}" \
+            ./backend
+          docker push "${{ steps.meta.outputs.image }}"
 
-      # Étape 3 : Déploiement Cloud Run (API HTTP)
+  migrate-db:
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Authenticate to Google Cloud (WIF)
+        uses: google-github-actions/auth@fc2174804b84f912b1f6d334e9463f484f1c552d
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+          workload_identity_provider: projects/623736074911/locations/global/workloadIdentityPools/github-pool/providers/github-provider
+          service_account: github-actions-deployer@factory-writer-poc-1776097019.iam.gserviceaccount.com
+
+      - name: Setup Google Cloud SDK
+        uses: google-github-actions/setup-gcloud@e427ad8a34f8676edf47cf7d7925499adf3eb74f
+        with:
+          install_components: beta
+
+      - name: Deploy and execute DB migration job
+        run: |
+          gcloud run jobs deploy factory-writer-db-migrate \
+            --image="${{ needs.build-and-push.outputs.image }}" \
+            --project="${PROJECT_ID}" \
+            --region="${REGION}" \
+            --task-timeout=600s \
+            --max-retries=1 \
+            --tasks=1 \
+            --set-cloudsql-instances="${CLOUDSQL_INSTANCE}" \
+            --set-env-vars="GCP__PROJECT_ID=${PROJECT_ID},GCP__LOCATION=${GCP_LOCATION},GCP__DOCUMENT_AI_LOCATION=${GCP_DOCUMENT_AI_LOCATION},GCP__DOCUMENT_AI_PROCESSOR_ID=${GCP_DOCUMENT_AI_PROCESSOR_ID},GCP__STYLE_GUIDE_BUCKET_NAME=${GCP_STYLE_GUIDE_BUCKET_NAME},TEMPORAL__ADDRESS=${TEMPORAL_ADDRESS},TEMPORAL__NAMESPACE=${TEMPORAL_NAMESPACE},TEMPORAL__DEPLOYMENT_NAME=${TEMPORAL_DEPLOYMENT_NAME}" \
+            --set-secrets="TEMPORAL__API_KEY=temporal-api-key:latest,DB__URL=db-url:latest" \
+            --command=alembic \
+            --args=-c,alembic.ini,upgrade,head \
+            --execute-now \
+            --wait
+
+  deploy-api:
+    runs-on: ubuntu-latest
+    needs: [build-and-push, migrate-db]
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Authenticate to Google Cloud (WIF)
+        uses: google-github-actions/auth@fc2174804b84f912b1f6d334e9463f484f1c552d
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+          workload_identity_provider: projects/623736074911/locations/global/workloadIdentityPools/github-pool/providers/github-provider
+          service_account: github-actions-deployer@factory-writer-poc-1776097019.iam.gserviceaccount.com
+
+      - name: Setup Google Cloud SDK
+        uses: google-github-actions/setup-gcloud@e427ad8a34f8676edf47cf7d7925499adf3eb74f
+        with:
+          install_components: beta
+
       - name: Deploy API to Cloud Run
-        uses: google-github-actions/deploy-cloudrun@2028e2d7d30a78c6910e0632e48dd561b064884d # v2
-        with:
-          service: "factory-writer-api"
-          region: "europe-west1"
-          image: "europe-west1-docker.pkg.dev/factory-writer-poc-1776097019/cloud-run-source-deploy/factory-writer:${{ github.sha }}"
-          flags: |
-            --command=uvicorn
-            --args=src.main:app,--host,0.0.0.0,--port,8080
-            --allow-unauthenticated
-            --add-cloudsql-instances="factory-writer-poc-1776097019:europe-west1:factory-writer-db"
-          env_vars: |
-            GCP__PROJECT_ID=factory-writer-poc-1776097019
-            GCP__LOCATION=europe-west1
-            TEMPORAL__ADDRESS=factory-writer-poc.waxwe.tmprl.cloud:7233
-            TEMPORAL__NAMESPACE=factory-writer-poc.waxwe
-          secrets: |
-            TEMPORAL__API_KEY=temporal-api-key:latest
-            DB__URL=db-url:latest
-
-      # Étape 4 : Déploiement Cloud Run Worker Pool (Temporal)
-      - name: Deploy Temporal Worker to Cloud Run Worker Pools
         run: |
-          gcloud beta run worker-pools deploy factory-writer-worker --quiet \
-            --image="europe-west1-docker.pkg.dev/factory-writer-poc-1776097019/cloud-run-source-deploy/factory-writer:${{ github.sha }}" \
-            --region="europe-west1" \
-            --project="factory-writer-poc-1776097019" \
+          gcloud run deploy factory-writer-api \
+            --image="${{ needs.build-and-push.outputs.image }}" \
+            --project="${PROJECT_ID}" \
+            --region="${REGION}" \
+            --allow-unauthenticated \
+            --set-cloudsql-instances="${CLOUDSQL_INSTANCE}" \
+            --set-env-vars="GCP__PROJECT_ID=${PROJECT_ID},GCP__LOCATION=${GCP_LOCATION},GCP__DOCUMENT_AI_LOCATION=${GCP_DOCUMENT_AI_LOCATION},GCP__DOCUMENT_AI_PROCESSOR_ID=${GCP_DOCUMENT_AI_PROCESSOR_ID},GCP__STYLE_GUIDE_BUCKET_NAME=${GCP_STYLE_GUIDE_BUCKET_NAME},TEMPORAL__ADDRESS=${TEMPORAL_ADDRESS},TEMPORAL__NAMESPACE=${TEMPORAL_NAMESPACE},TEMPORAL__DEPLOYMENT_NAME=${TEMPORAL_DEPLOYMENT_NAME}" \
+            --set-secrets="TEMPORAL__API_KEY=temporal-api-key:latest,DB__URL=db-url:latest" \
+            --command=uvicorn \
+            --args=factory_writer.main:app,--host,0.0.0.0,--port,8080
+
+  deploy-workers:
+    runs-on: ubuntu-latest
+    needs: [build-and-push, migrate-db]
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - role: style-admin
+            worker_pool: factory-writer-style-admin
+            scaling: 1
+            enabled_poc: true
+          - role: orchestrator
+            worker_pool: factory-writer-orchestrator
+            scaling: 0
+            enabled_poc: false
+          - role: docai
+            worker_pool: factory-writer-docai
+            scaling: 0
+            enabled_poc: false
+          - role: llm
+            worker_pool: factory-writer-llm
+            scaling: 0
+            enabled_poc: false
+          - role: offline-lab
+            worker_pool: factory-writer-offline-lab
+            scaling: 0
+            enabled_poc: false
+
+    steps:
+      - name: Authenticate to Google Cloud (WIF)
+        if: ${{ matrix.enabled_poc }}
+        uses: google-github-actions/auth@fc2174804b84f912b1f6d334e9463f484f1c552d
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+          workload_identity_provider: projects/623736074911/locations/global/workloadIdentityPools/github-pool/providers/github-provider
+          service_account: github-actions-deployer@factory-writer-poc-1776097019.iam.gserviceaccount.com
+
+      - name: Setup Google Cloud SDK
+        if: ${{ matrix.enabled_poc }}
+        uses: google-github-actions/setup-gcloud@e427ad8a34f8676edf47cf7d7925499adf3eb74f
+        with:
+          install_components: beta
+
+      - name: Deploy worker pool
+        if: ${{ matrix.enabled_poc }}
+        run: |
+          gcloud beta run worker-pools deploy "${{ matrix.worker_pool }}" --quiet \
+            --image="${{ needs.build-and-push.outputs.image }}" \
+            --project="${PROJECT_ID}" \
+            --region="${REGION}" \
+            --scaling="${{ matrix.scaling }}" \
+            --set-cloudsql-instances="${CLOUDSQL_INSTANCE}" \
+            --set-env-vars="GCP__PROJECT_ID=${PROJECT_ID},GCP__LOCATION=${GCP_LOCATION},GCP__DOCUMENT_AI_LOCATION=${GCP_DOCUMENT_AI_LOCATION},GCP__DOCUMENT_AI_PROCESSOR_ID=${GCP_DOCUMENT_AI_PROCESSOR_ID},GCP__STYLE_GUIDE_BUCKET_NAME=${GCP_STYLE_GUIDE_BUCKET_NAME},TEMPORAL__ADDRESS=${TEMPORAL_ADDRESS},TEMPORAL__NAMESPACE=${TEMPORAL_NAMESPACE},TEMPORAL__DEPLOYMENT_NAME=${TEMPORAL_DEPLOYMENT_NAME},TEMPORAL__WORKER_ROLE=${{ matrix.role }}" \
+            --set-secrets="TEMPORAL__API_KEY=temporal-api-key:latest,DB__URL=db-url:latest" \
             --command=python \
-            --args=-m,src.temporal.worker \
-            --add-cloudsql-instances="factory-writer-poc-1776097019:europe-west1:factory-writer-db" \
-            --set-env-vars="GCP__PROJECT_ID=factory-writer-poc-1776097019,GCP__LOCATION=europe-west1,TEMPORAL__ADDRESS=factory-writer-poc.waxwe.tmprl.cloud:7233,TEMPORAL__NAMESPACE=factory-writer-poc.waxwe" \
-            --set-secrets="TEMPORAL__API_KEY=temporal-api-key:latest,DB__URL=db-url:latest"
+            --args=-m,factory_writer.temporal.worker

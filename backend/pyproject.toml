@@ -1,3 +1,7 @@
+[build-system]
+requires = ["hatchling>=1.27.0"]
+build-backend = "hatchling.build"
+
 [project]
 name = "factory-writer"
 version = "0.1.0"
@@ -37,6 +41,9 @@ target-version = "py312"
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"] # Imports triés (I), Pyflakes (F), pycodestyle (E), pyupgrade (UP), bugbear (B), flake8-simplify (SIM)
 ignore = ["E501", "B008"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/factory_writer"]
 
 [tool.mypy]
 mypy_path = "src"

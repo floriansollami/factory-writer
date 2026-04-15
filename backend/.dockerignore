@@ -2,7 +2,6 @@ __pycache__/
 *.pyc
 .env
 .venv/
-alembic.ini
 .mypy_cache/
 .ruff_cache/
 .pytest_cache/
