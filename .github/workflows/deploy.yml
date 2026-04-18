@@ -41,7 +41,7 @@ jobs:
 
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@0c366fd6a839edf440554fa01a7085ccba70ac98
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
       - name: Set up Python
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
@@ -86,7 +86,7 @@ jobs:
 
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@0c366fd6a839edf440554fa01a7085ccba70ac98
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
       - name: Compute image metadata
         id: meta
@@ -94,14 +94,14 @@ jobs:
           echo "image=${REGION}-docker.pkg.dev/${PROJECT_ID}/${ARTIFACT_REPOSITORY}/${IMAGE_NAME}:${GITHUB_SHA}" >> "${GITHUB_OUTPUT}"
 
       - name: Authenticate to Google Cloud (WIF)
-        uses: google-github-actions/auth@fc2174804b84f912b1f6d334e9463f484f1c552d
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093
         with:
           project_id: ${{ env.PROJECT_ID }}
           workload_identity_provider: projects/623736074911/locations/global/workloadIdentityPools/github-pool/providers/github-provider
           service_account: github-actions-deployer@factory-writer-poc-1776097019.iam.gserviceaccount.com
 
       - name: Setup Google Cloud SDK
-        uses: google-github-actions/setup-gcloud@e427ad8a34f8676edf47cf7d7925499adf3eb74f
+        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db
         with:
           install_components: beta
 
@@ -131,14 +131,14 @@ jobs:
 
     steps:
       - name: Authenticate to Google Cloud (WIF)
-        uses: google-github-actions/auth@fc2174804b84f912b1f6d334e9463f484f1c552d
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093
         with:
           project_id: ${{ env.PROJECT_ID }}
           workload_identity_provider: projects/623736074911/locations/global/workloadIdentityPools/github-pool/providers/github-provider
           service_account: github-actions-deployer@factory-writer-poc-1776097019.iam.gserviceaccount.com
 
       - name: Setup Google Cloud SDK
-        uses: google-github-actions/setup-gcloud@e427ad8a34f8676edf47cf7d7925499adf3eb74f
+        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db
         with:
           install_components: beta
 
@@ -188,14 +188,14 @@ jobs:
 
     steps:
       - name: Authenticate to Google Cloud (WIF)
-        uses: google-github-actions/auth@fc2174804b84f912b1f6d334e9463f484f1c552d
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093
         with:
           project_id: ${{ env.PROJECT_ID }}
           workload_identity_provider: projects/623736074911/locations/global/workloadIdentityPools/github-pool/providers/github-provider
           service_account: github-actions-deployer@factory-writer-poc-1776097019.iam.gserviceaccount.com
 
       - name: Setup Google Cloud SDK
-        uses: google-github-actions/setup-gcloud@e427ad8a34f8676edf47cf7d7925499adf3eb74f
+        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db
         with:
           install_components: beta
 
@@ -267,7 +267,7 @@ jobs:
     steps:
       - name: Authenticate to Google Cloud (WIF)
         if: ${{ matrix.enabled_poc }}
-        uses: google-github-actions/auth@fc2174804b84f912b1f6d334e9463f484f1c552d
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093
         with:
           project_id: ${{ env.PROJECT_ID }}
           workload_identity_provider: projects/623736074911/locations/global/workloadIdentityPools/github-pool/providers/github-provider
@@ -275,7 +275,7 @@ jobs:
 
       - name: Setup Google Cloud SDK
         if: ${{ matrix.enabled_poc }}
-        uses: google-github-actions/setup-gcloud@e427ad8a34f8676edf47cf7d7925499adf3eb74f
+        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db
         with:
           install_components: beta
 
