@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class GCPSettings(BaseModel):
     project_id: str = ""
-    location: str = "europe-west1"
+    location: str = "global"
     document_ai_location: str = "eu"
     document_ai_processor_id: str = ""
     document_ai_processor_version: str | None = None
@@ -26,6 +26,12 @@ class DatabaseSettings(BaseModel):
     url: str = ""
 
 
+class LLMSettings(BaseModel):
+    style_guide_timeout_seconds: float = 90.0
+    style_guide_prompt_name: str = "style_guide_extract_rules"
+    style_guide_prompt_version: str = "v1"
+
+
 class Settings(BaseSettings):
     app_name: str = "Factory Writer API"
     version: str = "0.1.0"
@@ -33,6 +39,7 @@ class Settings(BaseSettings):
     gcp: GCPSettings = GCPSettings()
     temporal: TemporalSettings = TemporalSettings()
     db: DatabaseSettings = DatabaseSettings()
+    llm: LLMSettings = LLMSettings()
 
     model_config = SettingsConfigDict(env_file=".env", env_nested_delimiter="__", extra="ignore")
 

@@ -39,7 +39,7 @@ async def get_temporal_client() -> Client:
         _client = await Client.connect(
             settings.temporal.address,
             namespace=settings.temporal.namespace,
-            api_key=settings.temporal.api_key,
+            api_key=settings.temporal.api_key or None,
             data_converter=pydantic_data_converter,
         )
         logger.info("Connected to Temporal")

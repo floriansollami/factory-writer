@@ -6,7 +6,7 @@ Il est aligné avec :
 
 - [ARCHITECTURE_SOTA_2026.md](/Users/floriansollami/Documents/GitHub/factory-writer/docs/ARCHITECTURE_SOTA_2026.md)
 - [FINAL_ARCHITECTURE.md](/Users/floriansollami/Documents/GitHub/factory-writer/docs/FINAL_ARCHITECTURE.md)
-- [ARCHITECTURE_STYLE_GUIDE_INGESTION.md](/Users/floriansollami/Documents/GitHub/factory-writer/docs/brand%20style%20extraction/ARCHITECTURE_STYLE_GUIDE_INGESTION.md)
+- [ARCHITECTURE_STYLE_GUIDE_INGESTION.md](/Users/floriansollami/Documents/GitHub/factory-writer/docs/brand_style_extraction/ARCHITECTURE_STYLE_GUIDE_INGESTION.md)
 
 ## Objectif POC
 
@@ -25,12 +25,12 @@ Le scénario cible est le suivant :
 ## Ce qui existe déjà dans le code
 
 - route Eventarc : [eventarc_router.py](/Users/floriansollami/Documents/GitHub/factory-writer/backend/src/factory_writer/api/routes/eventarc_router.py)
-- use case d'entrée : [ingest_style_guide.py](/Users/floriansollami/Documents/GitHub/factory-writer/backend/src/factory_writer/application/use_cases/ingest_style_guide.py)
-- workflow Temporal : [style_guide_ingestion.py](/Users/floriansollami/Documents/GitHub/factory-writer/backend/src/factory_writer/temporal/workflows/style_guide_ingestion.py)
-- placeholders d'activities : [style_guide_activities.py](/Users/floriansollami/Documents/GitHub/factory-writer/backend/src/factory_writer/temporal/activities/style_guide_activities.py)
+- service applicatif : [style_guide_ingestion_service.py](/Users/floriansollami/Documents/GitHub/factory-writer/backend/src/factory_writer/application/services/style_guide_ingestion_service.py)
+- workflow Temporal : [workflow.py](/Users/floriansollami/Documents/GitHub/factory-writer/backend/src/factory_writer/temporal/style_guide_ingestion/workflow.py)
+- activities Temporal : [activities.py](/Users/floriansollami/Documents/GitHub/factory-writer/backend/src/factory_writer/temporal/style_guide_ingestion/activities.py)
 - modèles DB : [style_guide.py](/Users/floriansollami/Documents/GitHub/factory-writer/backend/src/factory_writer/infrastructure/database/models/style_guide.py)
 
-Aujourd'hui, le squelette de workflow existe, mais les activities métier sont encore des placeholders.
+Aujourd'hui, le workflow et les activities style guide sont câblés pour le POC.
 
 ## Recommandation SOTA 2026 pour ce cas
 
@@ -62,7 +62,7 @@ Autrement dit :
 | 4 | Persister les fragments | remplacer `persist_style_fragments_activity` par une vraie normalisation des sections/chunks | les fragments du guide sont stockés en base |
 | 5 | Générer le draft pack | remplacer `generate_style_pack_draft_activity` par un appel LiteLLM avec structured output | un `PackStyle` brouillon et ses règles sont créés |
 | 6 | Valider le draft | ajouter validation déterministe du JSON produit avant persistance | seules les sorties valides passent |
-| 7 | Gérer l'approbation humaine | faire remonter `reviewer_id` et `comment` jusqu'à la promotion | la décision humaine est traçable |
+| 7 | Gérer l'approbation humaine | attendre un signal `approve_pack` avec `approved: true/false` | le pack n'est activé qu'après validation humaine |
 | 8 | Promouvoir le pack actif | remplacer `promote_style_pack_activity` par une vraie transaction | un seul pack actif existe au runtime |
 | 9 | Brancher la lecture runtime | faire lire le pack actif par le runtime produit | la génération de fiches n'utilise plus le PDF brut |
 | 10 | Ajouter les tests critiques | tests d'activities, tests de workflow, tests d'idempotence | le flux est fiable pour le POC |
@@ -218,10 +218,7 @@ Promouvoir un brouillon approuvé en pack actif.
 - désactiver l'ancien pack actif
 - activer le nouveau pack
 - marquer la source comme `TERMINE`
-- stocker les infos minimales de review
-  - `reviewer_id`
-  - commentaire
-  - date d'approbation
+- stocker la date d'approbation
 
 **Pourquoi**
 
@@ -233,13 +230,13 @@ Le workflow supporte déjà le signal `approve_pack`, mais il faut mieux l'explo
 
 **À faire**
 
-- enrichir l'état du workflow si besoin
-- faire suivre `reviewer_id` et `comment`
-- transmettre ces informations à `promote_style_pack_activity`
+- attendre `approved: true/false`
+- refuser proprement si le signal vaut `false`
+- promouvoir le pack si le signal vaut `true`
 
 **Résultat**
 
-La gouvernance humaine est réellement persistée.
+La validation humaine reste simple pour le POC. Les métadonnées avancées de review sont un ajout POC+.
 
 ## Ajustements de modèle recommandés pour le POC
 
@@ -249,13 +246,12 @@ Il ne faut pas surmodéliser, mais quelques champs manquent pour un POC propre.
 
 Ajouter au minimum :
 
-- `bucket_gcs`
-- `objet_gcs`
-- `generation_gcs`
-- `metageneration_gcs`
-- `docai_processor_version`
-- `docai_operation_id`
-- `docai_output_uri`
+- `storage_uri`
+- `storage_generation`
+- `storage_metageneration`
+- `parser_resource_id`
+- `parser_operation_id`
+- `parser_output_uri`
 - `dernier_message_erreur`
 
 ### `FragmentStyle`
@@ -270,12 +266,16 @@ Ajouter si simple à faire :
 
 Ajouter au minimum :
 
-- `schema_version`
-- `provider_llm`
-- `modele_llm`
+- `prompt_registry_provider`
+- `prompt_name`
 - `prompt_version`
-- `approuve_par`
-- `commentaire_approbation`
+- `llm_model`
+- `llm_temperature`
+- `llm_max_tokens`
+- `llm_response_format`
+- `system_prompt_hash`
+- `user_prompt_hash`
+- `approuve_le`
 
 ## Ordre d'implémentation recommandé
 

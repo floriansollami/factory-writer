@@ -1,0 +1,530 @@
+:root {
+  --forest: #20362d;
+  --forest-2: #375345;
+  --moss: #667e6c;
+  --sage: #98aa9a;
+  --teak: #b6906c;
+  --linen: #f6f2eb;
+  --cream: #fbf8f3;
+  --terracotta: #bc795d;
+  --gold: #d4be92;
+  --ink: #323a36;
+  --rule: #d7dad4;
+  --soft-green: #eef4ee;
+  --soft-rose: #f6ece6;
+  --white: #ffffff;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+@page {
+  size: A4;
+  margin: 0;
+}
+
+body {
+  margin: 0;
+  background: #dfe5df;
+  color: var(--ink);
+  font-family: "Avenir Next", "Segoe UI", Arial, sans-serif;
+}
+
+.page {
+  width: 210mm;
+  height: 297mm;
+  margin: 0 auto;
+  padding: 5.5mm;
+  background: var(--cream);
+  display: grid;
+  grid-template-rows: auto auto 1fr auto;
+  gap: 3mm;
+  overflow: hidden;
+}
+
+.hero {
+  background: var(--forest);
+  color: var(--linen);
+  border-radius: 0;
+  padding: 5.5mm;
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+  gap: 4mm;
+  min-width: 0;
+  break-inside: avoid;
+}
+
+.brand,
+.moodboard,
+.card,
+.subcard,
+.tone {
+  min-width: 0;
+}
+
+.brand__topline {
+  font-size: 8.2mm;
+  line-height: 0.95;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  margin-bottom: 3mm;
+}
+
+.brand__row {
+  display: grid;
+  grid-template-columns: 18mm 1fr;
+  gap: 3mm;
+  align-items: start;
+  margin-bottom: 3mm;
+}
+
+.brand__seal {
+  width: 18mm;
+  height: 18mm;
+  border-radius: 50%;
+  background: var(--linen);
+  color: var(--forest);
+  border: 0.8mm solid var(--gold);
+  display: grid;
+  place-items: center;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 8mm;
+  font-weight: 700;
+}
+
+h1,
+h3,
+p,
+ul,
+dl {
+  margin: 0;
+}
+
+h1 {
+  font-family: Georgia, "Times New Roman", serif;
+  font-style: italic;
+  font-size: 4.8mm;
+  color: var(--gold);
+  margin-bottom: 1.5mm;
+}
+
+.lede {
+  font-size: 3.05mm;
+  line-height: 1.32;
+  max-width: 95%;
+}
+
+.meta-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 2mm 4mm;
+  padding: 3mm;
+  margin: 3mm 0 2.5mm;
+  background: var(--forest-2);
+}
+
+.meta-item {
+  display: grid;
+  gap: 0.8mm;
+  min-width: 0;
+}
+
+.meta-label {
+  color: var(--gold);
+  font-size: 2.35mm;
+  font-weight: 700;
+  text-transform: none;
+}
+
+.meta-value {
+  color: var(--linen);
+  font-size: 2.8mm;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5mm;
+}
+
+.chip,
+.tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 5.2mm;
+  padding: 0 2.8mm;
+  font-size: 2.55mm;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.chip--gold {
+  background: var(--gold);
+  color: var(--forest);
+}
+
+.chip--sage,
+.tag--soft {
+  background: var(--sage);
+  color: var(--forest);
+}
+
+.chip--teak {
+  background: var(--teak);
+  color: var(--forest);
+}
+
+.moodboard {
+  background: #f2eadf;
+  padding: 3.5mm;
+  position: relative;
+  overflow: hidden;
+}
+
+.moodboard__badge {
+  font-size: 2.45mm;
+  font-weight: 800;
+  color: var(--forest);
+  margin-bottom: 1.5mm;
+}
+
+.moodboard p {
+  font-size: 2.7mm;
+  line-height: 1.35;
+  max-width: 87%;
+}
+
+.scene {
+  position: relative;
+  height: 24mm;
+  margin-top: 2.5mm;
+}
+
+.sun,
+.leaf,
+.planter,
+.lamp-head,
+.lamp-stem,
+.lamp-leg,
+.table-top,
+.leg {
+  position: absolute;
+}
+
+.sun {
+  right: 9mm;
+  top: -1mm;
+  width: 14mm;
+  height: 14mm;
+  border-radius: 50%;
+  background: rgba(212, 190, 146, 0.52);
+}
+
+.leaf {
+  background: rgba(102, 126, 108, 0.58);
+  border-radius: 50% 50% 46% 46%;
+}
+
+.leaf--1 {
+  width: 5mm;
+  height: 11mm;
+  right: 15mm;
+  top: 1mm;
+}
+
+.leaf--2 {
+  width: 4mm;
+  height: 9mm;
+  right: 3mm;
+  top: 4mm;
+}
+
+.leaf--3 {
+  width: 4.5mm;
+  height: 9.5mm;
+  left: 7mm;
+  top: 9mm;
+}
+
+.table-top {
+  left: 31mm;
+  top: 14mm;
+  width: 27mm;
+  height: 1.3mm;
+  background: var(--teak);
+}
+
+.leg {
+  top: 15.3mm;
+  width: 1mm;
+  height: 10mm;
+  background: var(--teak);
+}
+
+.leg--1 {
+  left: 35mm;
+  transform: rotate(12deg);
+}
+
+.leg--2 {
+  left: 54mm;
+  transform: rotate(-12deg);
+}
+
+.planter {
+  left: 10mm;
+  bottom: 2mm;
+  width: 8mm;
+  height: 6mm;
+  background: var(--terracotta);
+}
+
+.lamp-head {
+  right: 13mm;
+  bottom: 16mm;
+  width: 4mm;
+  height: 9mm;
+  background: var(--forest-2);
+}
+
+.lamp-stem {
+  right: 14.5mm;
+  bottom: 6mm;
+  width: 1mm;
+  height: 11mm;
+  background: var(--forest-2);
+}
+
+.lamp-leg {
+  right: 14.8mm;
+  bottom: 1.5mm;
+  width: 1mm;
+  height: 7mm;
+  background: var(--forest-2);
+  transform-origin: bottom center;
+}
+
+.lamp-leg--1 {
+  transform: rotate(18deg);
+}
+
+.lamp-leg--2 {
+  transform: rotate(-18deg);
+}
+
+.palette {
+  background: var(--linen);
+  border: 0.3mm solid var(--rule);
+  padding: 1.5mm 2.5mm;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5mm 4mm;
+  align-items: center;
+  break-inside: avoid;
+}
+
+.palette__label {
+  font-size: 2.45mm;
+  font-weight: 800;
+  color: var(--forest);
+}
+
+.swatch {
+  display: inline-flex;
+  align-items: center;
+  gap: 1.4mm;
+  font-size: 2.45mm;
+}
+
+.swatch i {
+  display: inline-block;
+  width: 4mm;
+  height: 4mm;
+  border: 0.2mm solid var(--rule);
+}
+
+.content-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 3mm;
+  align-content: start;
+}
+
+.card {
+  background: var(--white);
+  border: 0.3mm solid var(--rule);
+  padding: 3.2mm;
+  display: grid;
+  gap: 2.2mm;
+  min-height: 0;
+  break-inside: avoid;
+}
+
+.card__eyebrow {
+  font-size: 2.55mm;
+  font-weight: 800;
+  color: var(--moss);
+  letter-spacing: 0.02em;
+}
+
+.rule-list,
+.mini-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 1.6mm;
+}
+
+.rule-list {
+  font-size: 2.75mm;
+  line-height: 1.28;
+}
+
+.rule-list--dense {
+  gap: 1.4mm;
+  font-size: 2.6mm;
+}
+
+.split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 2mm;
+}
+
+.split--equal .subcard {
+  min-height: 0;
+}
+
+.subcard {
+  padding: 2.7mm;
+  display: grid;
+  gap: 1.8mm;
+}
+
+.subcard h3,
+.tone h3 {
+  font-size: 2.85mm;
+  font-weight: 800;
+}
+
+.subcard p,
+.subcard small,
+.tone p,
+.kv-list,
+.mini-list {
+  font-size: 2.55mm;
+  line-height: 1.25;
+}
+
+.subcard small {
+  color: var(--moss);
+}
+
+.subcard--green,
+.tone--soft {
+  background: var(--soft-green);
+}
+
+.subcard--rose {
+  background: var(--soft-rose);
+}
+
+.mini-list--two-cols {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 1.4mm 2.2mm;
+}
+
+.mini-list li {
+  overflow-wrap: anywhere;
+}
+
+.tone {
+  background: #eff3ee;
+  padding: 2.8mm;
+}
+
+.legend {
+  display: flex;
+  gap: 1.4mm;
+}
+
+.tag {
+  min-height: 4.6mm;
+  padding-inline: 2.2mm;
+  font-size: 2.25mm;
+}
+
+.tag--hard {
+  background: var(--terracotta);
+  color: var(--white);
+}
+
+.kv-list {
+  display: grid;
+  gap: 1.6mm;
+}
+
+.kv-list div {
+  display: grid;
+  gap: 0.6mm;
+  padding-bottom: 1.4mm;
+  border-bottom: 0.2mm solid var(--rule);
+}
+
+.kv-list div:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.kv-list dt {
+  font-weight: 800;
+  color: var(--moss);
+}
+
+.kv-list dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.footer {
+  border-top: 0.3mm solid var(--rule);
+  padding-top: 1.8mm;
+  display: flex;
+  justify-content: space-between;
+  gap: 4mm;
+  font-size: 2.2mm;
+  color: var(--moss);
+  break-inside: avoid;
+}
+
+@media print {
+  body {
+    background: transparent;
+  }
+
+  .page {
+    margin: 0;
+  }
+
+  .hero,
+  .palette,
+  .card,
+  .subcard,
+  .tone,
+  .footer {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+}

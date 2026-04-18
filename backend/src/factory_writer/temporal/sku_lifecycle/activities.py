@@ -8,9 +8,9 @@ from temporalio import activity
 from factory_writer.temporal.common.contracts import PublicationDecision
 from factory_writer.temporal.sku_lifecycle.contracts import (
     GeneratedArtifactRef,
+    GenerationRecipeLoadInput,
+    GenerationRecipeResult,
     GenerationStepInput,
-    PromptPackageLoadInput,
-    PromptPackageResult,
     PublishContentInput,
     PublishContentResult,
     PublishGateDecision,
@@ -73,12 +73,12 @@ async def load_style_pack(payload: StylePackLoadInput) -> StylePackResult:
 
 
 @activity.defn
-async def load_prompt_package(payload: PromptPackageLoadInput) -> PromptPackageResult:
-    logger.info("load_prompt_package.started", sku=payload.product.sku)
+async def load_generation_recipe(payload: GenerationRecipeLoadInput) -> GenerationRecipeResult:
+    logger.info("load_generation_recipe.started", sku=payload.product.sku)
     await asyncio.sleep(0)
-    return PromptPackageResult(
-        prompt_package_id="prompt-package-active-placeholder",
-        version_label="prompt-package-v1-placeholder",
+    return GenerationRecipeResult(
+        generation_recipe_id="generation-recipe-active-placeholder",
+        version_label="generation-recipe-v1-placeholder",
     )
 
 

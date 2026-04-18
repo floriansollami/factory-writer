@@ -6,9 +6,9 @@ import structlog
 from temporalio import activity
 
 from factory_writer.temporal.offline_evaluation.contracts import (
+    GenerationRecipeCandidateResult,
     OfflineEvaluationBatch,
     OfflineEvaluationInput,
-    PromptPackageCandidateResult,
 )
 
 logger = structlog.get_logger(__name__)
@@ -34,27 +34,27 @@ async def load_evaluation_batch(
 @activity.defn
 async def run_vertex_prompt_evaluation(
     payload: OfflineEvaluationBatch,
-) -> PromptPackageCandidateResult:
+) -> GenerationRecipeCandidateResult:
     logger.info(
         "run_vertex_prompt_evaluation.started",
         batch_id=payload.batch_id,
         case_count=payload.case_count,
     )
     await asyncio.sleep(0)
-    return PromptPackageCandidateResult(
-        prompt_package_id=f"prompt-candidate-{payload.batch_id}",
-        version_label="prompt-package-candidate-placeholder",
+    return GenerationRecipeCandidateResult(
+        generation_recipe_id=f"generation-recipe-candidate-{payload.batch_id}",
+        version_label="generation-recipe-candidate-placeholder",
         source="vertex-ai-placeholder",
     )
 
 
 @activity.defn
-async def promote_prompt_package_candidate(
-    payload: PromptPackageCandidateResult,
+async def promote_generation_recipe_candidate(
+    payload: GenerationRecipeCandidateResult,
 ) -> str:
     logger.info(
-        "promote_prompt_package_candidate.started",
-        prompt_package_id=payload.prompt_package_id,
+        "promote_generation_recipe_candidate.started",
+        generation_recipe_id=payload.generation_recipe_id,
     )
     await asyncio.sleep(0)
-    return payload.prompt_package_id
+    return payload.generation_recipe_id

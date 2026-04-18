@@ -17,9 +17,9 @@ from factory_writer.temporal.common.contracts import (
 )
 from factory_writer.temporal.sku_lifecycle.contracts import (
     ContextSnapshot,
+    GenerationRecipeLoadInput,
     GenerationStepInput,
     ProductContextRef,
-    PromptPackageLoadInput,
     PublishContentInput,
     PublishGateInput,
     SignalSnapshotLoadInput,
@@ -40,7 +40,7 @@ with workflow.unsafe.imports_passed_through():
         generate_claim_plan,
         generate_final_draft,
         generate_redaction_plan,
-        load_prompt_package,
+        load_generation_recipe,
         load_signal_snapshot,
         load_style_pack,
         publish_generated_content,
@@ -111,9 +111,9 @@ class SkuLifecycleWorkflow:
             start_to_close_timeout=SHORT_ACTIVITY_TIMEOUT,
             retry_policy=DB_RETRY_POLICY,
         )
-        prompt_package = await workflow.execute_activity(
-            load_prompt_package,
-            PromptPackageLoadInput(product=payload.product),
+        generation_recipe = await workflow.execute_activity(
+            load_generation_recipe,
+            GenerationRecipeLoadInput(product=payload.product),
             task_queue=TaskQueue.SKU_LIFECYCLE.value,
             start_to_close_timeout=SHORT_ACTIVITY_TIMEOUT,
             retry_policy=DB_RETRY_POLICY,
@@ -121,14 +121,14 @@ class SkuLifecycleWorkflow:
 
         self.state.signal_snapshot_id = signal_snapshot.signal_snapshot_id
         self.state.style_pack_id = style_pack.style_pack_id
-        self.state.prompt_package_id = prompt_package.prompt_package_id
+        self.state.generation_recipe_id = generation_recipe.generation_recipe_id
 
         context_snapshot = ContextSnapshot(
             product=payload.product,
             facts=facts_result,
             signals=signal_snapshot,
             style_pack=style_pack,
-            prompt_package=prompt_package,
+            generation_recipe=generation_recipe,
         )
 
         self.state.status = WorkflowExecutionStatus.GENERATING_COPY

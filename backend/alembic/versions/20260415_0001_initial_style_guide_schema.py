@@ -1,8 +1,8 @@
-"""initial style guide schema
+"""initial schema
 
 Revision ID: 20260415_0001
 Revises:
-Create Date: 2026-04-15 10:00:00.000000
+Create Date: 2026-04-18 15:00:00.000000
 """
 
 from __future__ import annotations
@@ -48,23 +48,16 @@ niveau_contrainte_enum = sa.Enum(
 
 
 def upgrade() -> None:
-    # Nettoyage des types résiduels d'une éventuelle migration plantée précédemment
-    op.execute("DROP TYPE IF EXISTS statutsource CASCADE")
-    op.execute("DROP TYPE IF EXISTS statutpack CASCADE")
-    op.execute("DROP TYPE IF EXISTS typeregle CASCADE")
-    op.execute("DROP TYPE IF EXISTS niveaucontrainte CASCADE")
-
     op.create_table(
         "source_guide_style",
         sa.Column("uri_fichier", sa.String(), nullable=False),
         sa.Column("statut", statut_source_enum, nullable=False, server_default="EN_ATTENTE"),
-        sa.Column("bucket_gcs", sa.String(), nullable=True),
-        sa.Column("objet_gcs", sa.String(), nullable=True),
-        sa.Column("generation_gcs", sa.String(), nullable=True),
-        sa.Column("metageneration_gcs", sa.String(), nullable=True),
-        sa.Column("ressource_processeur_docai", sa.String(), nullable=True),
-        sa.Column("operation_docai_id", sa.String(), nullable=True),
-        sa.Column("uri_sortie_docai", sa.String(), nullable=True),
+        sa.Column("storage_uri", sa.String(), nullable=True),
+        sa.Column("storage_generation", sa.String(), nullable=True),
+        sa.Column("storage_metageneration", sa.String(), nullable=True),
+        sa.Column("parser_resource_id", sa.String(), nullable=True),
+        sa.Column("parser_operation_id", sa.String(), nullable=True),
+        sa.Column("parser_output_uri", sa.String(), nullable=True),
         sa.Column("dernier_message_erreur", sa.Text(), nullable=True),
         sa.Column("id", sa.Uuid(), nullable=False),
         sa.Column("created_at", sa.DateTime(), nullable=False),
@@ -80,7 +73,7 @@ def upgrade() -> None:
 
     op.create_table(
         "taxonomie_produit",
-        sa.Column("code_famille", sa.String(), nullable=False),
+        sa.Column("famille_code", sa.String(), nullable=False),
         sa.Column("libelle_fr", sa.String(), nullable=False),
         sa.Column("parent_id", sa.Uuid(), nullable=True),
         sa.Column("id", sa.Uuid(), nullable=False),
@@ -90,9 +83,9 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_index(
-        op.f("ix_taxonomie_produit_code_famille"),
+        op.f("ix_taxonomie_produit_famille_code"),
         "taxonomie_produit",
-        ["code_famille"],
+        ["famille_code"],
         unique=True,
     )
 
@@ -100,7 +93,6 @@ def upgrade() -> None:
         "fragment_style",
         sa.Column("source_id", sa.Uuid(), nullable=False),
         sa.Column("index_fragment", sa.Integer(), nullable=False),
-        sa.Column("titre_section", sa.String(), nullable=False),
         sa.Column("contenu", sa.Text(), nullable=False),
         sa.Column("id", sa.Uuid(), nullable=False),
         sa.Column("created_at", sa.DateTime(), nullable=False),
@@ -108,12 +100,22 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["source_id"], ["source_guide_style.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index(op.f("ix_fragment_style_source_id"), "fragment_style", ["source_id"], unique=False)
+    op.create_index(
+        op.f("ix_fragment_style_source_id"), "fragment_style", ["source_id"], unique=False
+    )
 
     op.create_table(
         "pack_style",
         sa.Column("source_id", sa.Uuid(), nullable=False),
-        sa.Column("label_version", sa.String(), nullable=False),
+        sa.Column("prompt_registry_provider", sa.String(), nullable=False),
+        sa.Column("prompt_name", sa.String(), nullable=False),
+        sa.Column("prompt_version", sa.String(), nullable=False),
+        sa.Column("llm_model", sa.String(), nullable=False),
+        sa.Column("llm_temperature", sa.Float(), nullable=False),
+        sa.Column("llm_max_tokens", sa.Integer(), nullable=False),
+        sa.Column("llm_response_format", sa.String(), nullable=False),
+        sa.Column("system_prompt_hash", sa.String(), nullable=False),
+        sa.Column("user_prompt_hash", sa.String(), nullable=False),
         sa.Column("statut", statut_pack_enum, nullable=False, server_default="BROUILLON"),
         sa.Column("est_actif", sa.Boolean(), nullable=False, server_default=sa.false()),
         sa.Column("approuve_le", sa.DateTime(), nullable=True),
@@ -137,7 +139,7 @@ def upgrade() -> None:
         sa.Column("id", sa.Uuid(), nullable=False),
         sa.Column("created_at", sa.DateTime(), nullable=False),
         sa.Column("updated_at", sa.DateTime(), nullable=False),
-        sa.ForeignKeyConstraint(["fragment_source_id"], ["fragment_style.id"], ondelete="RESTRICT"),
+        sa.ForeignKeyConstraint(["fragment_source_id"], ["fragment_style.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["pack_id"], ["pack_style.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(
             ["taxonomie_produit_id"],
@@ -146,7 +148,12 @@ def upgrade() -> None:
         ),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index(op.f("ix_regle_style_fragment_source_id"), "regle_style", ["fragment_source_id"], unique=False)
+    op.create_index(
+        op.f("ix_regle_style_fragment_source_id"),
+        "regle_style",
+        ["fragment_source_id"],
+        unique=False,
+    )
     op.create_index(op.f("ix_regle_style_pack_id"), "regle_style", ["pack_id"], unique=False)
     op.create_index(
         op.f("ix_regle_style_taxonomie_produit_id"),
@@ -168,7 +175,7 @@ def downgrade() -> None:
     op.drop_index(op.f("ix_fragment_style_source_id"), table_name="fragment_style")
     op.drop_table("fragment_style")
 
-    op.drop_index(op.f("ix_taxonomie_produit_code_famille"), table_name="taxonomie_produit")
+    op.drop_index(op.f("ix_taxonomie_produit_famille_code"), table_name="taxonomie_produit")
     op.drop_table("taxonomie_produit")
 
     op.drop_index(op.f("ix_source_guide_style_uri_fichier"), table_name="source_guide_style")

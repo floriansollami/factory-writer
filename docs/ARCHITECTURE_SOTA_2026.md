@@ -24,8 +24,9 @@ La bonne architecture est une architecture en **4 flux séparés** :
 
 Le principe clé est :
 
-**Temporal orchestre les cycles de vie métier et les attentes événementielles.  
-BigQuery + Dataform préparent les données analytiques réutilisables.  
+**Temporal orchestre les cycles de vie métier et les attentes événementielles.
+BigQuery + Dataform préparent les données analytiques réutilisables.
+Langfuse porte le LLMOps : prompts, traces, datasets, experiments et scores.
 Le runtime ne consomme que des contextes déjà structurés, validés et versionnés.**
 
 ## 1. Les décisions structurantes
@@ -39,10 +40,81 @@ Le runtime ne consomme que des contextes déjà structurés, validés et version
 | Style guide | `workflow admin séparé + style pack versionné` |
 | Signaux ventes/reviews | `pipeline BigQuery/Dataform batch + snapshots matérialisés` |
 | Extraction GenAI des reviews | `AI.GENERATE_TABLE ou équivalent batch, jamais en hot path` |
-| Génération produit | `LiteLLM + prompt package actif promu offline` |
-| Évaluations / optimizers | `Vertex AI dans le offline lab` |
+| Génération produit | `LiteLLM + recette de génération active promue offline` |
+| Prompt registry / traces / datasets | `Langfuse` |
+| Évaluations simples / experiments | `Langfuse + custom metrics` |
+| Évaluations avancées / optimizers | `Vertex AI dans le offline lab, optionnel et encadré` |
+| Décision de production | `Postgres generation_recipe_active` |
 | Déploiement workers | `Cloud Run worker pools pour le POC, malgré leur maturité plus faible` |
 | Gouvernance Temporal | `Worker Versioning + Replay Testing + Continue-As-New` |
+
+## 1 bis. Prompt governance cible
+
+Le point important avec Langfuse est de ne pas confondre quatre niveaux :
+
+| Niveau | Source de vérité | Rôle |
+| --- | --- | --- |
+| Prompt individuel | `Langfuse` | Texte du prompt, version, labels, diffs, rollback, lien avec traces. |
+| Recette de génération | `Postgres` | Combinaison exacte autorisée en production : prompt version, model profile, paramètres, schéma, politique de validation. |
+| Catalogue modèle | `LiteLLM` | Alias modèle autorisés, routing vers le vrai provider, fallback, tokens, coûts. |
+| Exécution modèle | `LiteLLM` | Appel effectif du modèle choisi et production de la trace runtime. |
+| Evaluation avancée | `Vertex AI` | Scores offline avancés et propositions d'optimisation. |
+
+Le runtime ne charge jamais `latest`. Il charge une version exacte décidée par Postgres :
+
+```text
+generation_recipe_version
+-> prompt_name
+-> prompt_version
+-> model_profile
+-> temperature
+-> max_tokens
+-> response_format / output_schema
+-> validation_policy
+```
+
+Langfuse peut avoir un label `production`, mais ce label ne remplace pas la `generation_recipe_active` côté Factory Writer. Il sert au pilotage LLMOps, pas à court-circuiter la gouvernance métier.
+
+### Pourquoi parler de recette et pas seulement de prompt
+
+Un résultat LLM change si tu modifies :
+
+- le prompt
+- le modèle
+- la température
+- le schéma de sortie
+- les few-shots
+- la politique de rewrite
+
+Donc l'offline lab ne doit pas promouvoir “un prompt”. Il doit promouvoir une **recette de génération**.
+
+Exemple :
+
+| Recette | Prompt Langfuse | Model profile LiteLLM | Paramètres | Statut |
+| --- | --- | --- | --- | --- |
+| `style_pack_recipe_v1` | `style_guide_extract_rules:v12` | `style-guide-extractor-gemini25flash-eu-v1` | `temperature=0`, `schema=style_pack_candidate_v1` | active |
+| `style_pack_recipe_v2` | `style_guide_extract_rules:v13` | `style-guide-extractor-claude-sonnet-eu-v1` | `temperature=0`, `schema=style_pack_candidate_v1` | candidate |
+
+```mermaid
+flowchart LR
+    LF["Langfuse<br/>prompt versions"] --> REC["Generation recipe"]
+    LLM["LiteLLM<br/>model_profile catalog"] --> REC
+    REC --> PG["Postgres<br/>active recipe"]
+    PG --> ON["Online workflow"]
+    ON --> GW["LiteLLM execution"]
+    GW --> PROV["Resolved provider model"]
+```
+
+### Modèle : alias stable vs provider réel
+
+En cible prod, Factory Writer appelle un `model_profile`, pas directement un provider model.
+
+| Niveau | Exemple | Pourquoi |
+| --- | --- | --- |
+| `model_profile` | `product-sheet-writer-gemini25pro-eu-v1` | Alias stable testé et autorisé par le lab. |
+| `resolved_provider_model` | `vertex_ai/gemini-2.5-pro` | Vrai modèle exécuté, stocké dans les traces. |
+
+Cette séparation permet de changer le routing LiteLLM sans changer le use case, tout en gardant l'audit exact du modèle réellement appelé.
 
 ## 2. Pourquoi cette séparation est la meilleure approche
 
@@ -102,7 +174,8 @@ flowchart LR
         DF["Dataform schedules"]
         PG["Cloud SQL PostgreSQL"]
         LLM["LiteLLM / model providers"]
-        VX["Vertex AI eval + prompt optimizer"]
+        LF["Langfuse prompt registry + traces + datasets"]
+        VX["Vertex AI eval + prompt optimizer optional"]
         CMS["PIM / CMS / Product Content API"]
     end
 
@@ -130,6 +203,7 @@ flowchart LR
     W1 --> PG
 
     W3 --> LLM
+    W3 --> LF
     W3 --> PG
     W3 --> BQ
     W3 --> CMS
@@ -137,12 +211,14 @@ flowchart LR
     W4 --> GCS
     W4 --> DOC
     W4 --> LLM
+    W4 --> LF
     W4 --> PG
 
     DF --> BQ
     W5 --> BQ
     W5 --> PG
     W5 --> LLM
+    W5 --> LF
     W5 --> VX
     W5 --> PG
 ```
@@ -208,11 +284,22 @@ et non par Temporal.
 Il sert à :
 
 - relire les traces de production
+- construire des datasets Langfuse versionnés
 - évaluer les variantes
-- utiliser Vertex AI pour comparer et optimiser
-- promouvoir un nouveau `prompt_package_actif`
+- utiliser Langfuse pour les experiments et scores
+- utiliser Vertex AI pour comparer et optimiser quand le niveau de maturité le justifie
+- promouvoir une nouvelle `generation_recipe_active`
 
 Le cœur de ce couloir est `OfflineEvaluationWorkflow`.
+
+La règle de production est :
+
+```text
+Langfuse stocke les prompts et les traces.
+Vertex peut scorer ou proposer un candidat.
+Postgres décide la generation_recipe active.
+Temporal orchestre la promotion.
+```
 
 ## 5. Le runtime produit : la vraie logique Temporal
 
@@ -235,14 +322,18 @@ flowchart TD
 
     E --> F["Activity: load_signal_snapshot<br/>queue sku-lifecycle<br/>worker-orchestrator"]
     E --> G["Activity: load_style_pack_actif<br/>queue sku-lifecycle<br/>worker-orchestrator"]
-    E --> H["Activity: load_prompt_package_actif<br/>queue sku-lifecycle<br/>worker-orchestrator"]
+    E --> H["Activity: load_generation_recipe_active<br/>queue sku-lifecycle<br/>worker-orchestrator"]
+    H --> H2["Activity: fetch_exact_prompts_from_langfuse<br/>queue llm-generation<br/>worker-llm"]
 
     F --> I["context_snapshot complet"]
     G --> I
-    H --> I
+    H2 --> I
 
-    I --> J["Activity group: claim plan -> redaction plan -> final draft -> review<br/>queue llm-generation<br/>worker-llm"]
-    J --> K["publish gate"]
+    I --> J["Activity: generate_structured_candidate<br/>queue llm-generation<br/>worker-llm"]
+    J --> J2["Activity: validate_candidate_with_python<br/>queue sku-lifecycle<br/>worker-orchestrator"]
+    J2 -->|"needs correction"| J3["Activity: rewrite_with_validator_feedback<br/>queue llm-generation<br/>worker-llm"]
+    J3 --> J2
+    J2 -->|"pass"| K["publish gate"]
     K -->|"pass"| L["publish content"]
     K -->|"fail"| M["pending_editor_review"]
 ```
@@ -253,6 +344,8 @@ flowchart TD
 - les activities font le vrai travail
 - les queues spécialisées isolent les profils de charge
 - on évite de transformer chaque étape en child workflow sans vraie raison
+- on évite 5 à 6 appels LLM séquentiels dans le runtime
+- on garde `claim_plan` et `redaction_plan` comme objets structurés dans la sortie, pas forcément comme appels LLM séparés
 
 ## 6. Où mettre les signaux ventes et reviews
 
@@ -503,34 +596,96 @@ Donc ce n'est pas une expérience de lab.
 1. upload du PDF dans GCS
 2. start du workflow admin
 3. parse via Document AI Layout Parser
-4. structured extraction via LiteLLM
-5. validation déterministe
-6. review humaine
-7. publication d'un `style_pack_version`
-8. activation d'un seul pack à la fois
+4. fetch du prompt d'extraction depuis Langfuse ou prompt local POC
+5. structured extraction via LiteLLM
+6. trace Langfuse de l'appel LLM
+7. validation déterministe
+8. review humaine
+9. publication d'un `style_pack_version`
+10. activation d'un seul pack à la fois
+
+Pour le POC, les prompts peuvent rester en fichiers versionnés dans Git. En cible prod, Langfuse devient le registry des prompts individuels, tandis que Postgres conserve la preuve d'audit du `style_pack` produit : prompt name, prompt version, modèle, température, hashes et trace Langfuse.
 
 ## 11. Offline lab : ce qu'il doit faire exactement
 
 L'offline lab doit être séparé et posséder :
 
-- les datasets d'évaluation
-- les traces de production
+- les traces de production Langfuse
+- les datasets d'évaluation Langfuse versionnés
 - les variantes de prompts
-- les appels Vertex AI Eval
-- les prompt optimizers
-- la promotion du `prompt_package_actif`
+- les experiments Langfuse
+- les scores et feedbacks humains
+- les appels Vertex AI Eval quand on veut un benchmark plus robuste
+- les prompt optimizers, seulement comme générateurs de candidats
+- la promotion de la `generation_recipe_active`
 
 ### Ce qu'il lit
 
-- traces runtime en base ou BigQuery
+- traces runtime Langfuse
 - sorties humaines corrigées
 - cas gold annotés
+- datasets Langfuse versionnés
 
 ### Ce qu'il produit
 
-- `prompt_package_v2`, `v3`, etc.
+- `generation_recipe_v2`, `v3`, etc.
 - métriques comparatives
 - statut baseline / candidate / active
+- nouvelles versions de prompts dans Langfuse
+- décision de promotion dans Postgres
+
+### Boucle recommandée
+
+L'unité de test est une **recette complète** :
+
+```text
+prompt version + model_profile + température + max_tokens + response_format + validation policy
+```
+
+Le lab teste donc aussi les modèles. Il ne compare pas uniquement des prompts.
+
+```mermaid
+flowchart TD
+    A["Langfuse prod traces"] --> B["Trace mining + curation"]
+    B --> C["Langfuse dataset versionné"]
+    C --> D["OfflineEvaluationWorkflow"]
+    D --> E["Recipe A<br/>prompt v12 + Gemini Flash"]
+    D --> F["Recipe B<br/>prompt v13 + Gemini Flash"]
+    D --> G["Recipe C<br/>prompt v13 + Claude Sonnet"]
+    D --> H["Recipe D<br/>prompt v13 + Gemini Pro"]
+    E --> I["Runs via LiteLLM<br/>same dataset"]
+    F --> I
+    G --> I
+    H --> I
+    I --> J["Deterministic metrics<br/>schema + grounding + forbidden claims"]
+    I --> K["Langfuse experiment scores<br/>human feedback + custom scores"]
+    I --> L["Vertex AI Eval optional<br/>pointwise / pairwise / AutoSxS"]
+    J --> M["Scorecard"]
+    K --> M
+    L --> M
+    M --> N["Promotion gate"]
+    N --> O["Postgres generation_recipe_active"]
+    N --> P["Langfuse labels candidate/staging/production"]
+```
+
+Les traces de production ne doivent pas être optimisées directement. Elles doivent être transformées en dataset stable, filtré et éventuellement annoté. Sinon, le lab optimise sur du bruit.
+
+### Comment on change de prompt ou de modèle
+
+| Changement | Où il se fait | Exemple |
+| --- | --- | --- |
+| Nouveau texte de prompt | `Langfuse` | `style_guide_extract_rules:v12 -> v13` |
+| Nouveau modèle testé | `generation_recipe candidate` + `LiteLLM model_profile` | `gemini25flash -> claude-sonnet` |
+| Routing infra transparent | `LiteLLM` | même `model_profile`, autre région ou provider équivalent |
+| Passage en production | `PromptPromotionWorkflow` + `Postgres` | `generation_recipe_v8` devient active |
+
+Le code applicatif ne change pas. Le use case dépend de ports :
+
+```text
+PromptRegistryPort -> récupère la version exacte de prompt
+LLMGatewayPort -> appelle le model_profile via LiteLLM
+RepositoryPort -> lit la generation_recipe active
+```
 
 ## 12. Worker pools Cloud Run : position pragmatique pour le POC
 
@@ -583,8 +738,13 @@ Le point important est :
 
 ### Côté génération
 
-- prompt package actif versionné
+- generation recipe active versionnée
+- prompt registry Langfuse pour les prompts individuels
+- Postgres comme source de vérité de la recette runtime promue
+- structured outputs obligatoires
+- validation Python pure obligatoire
 - style pack actif versionné
+- traces Langfuse corrélées aux workflows Temporal
 - publish gate avant publication storefront
 
 ## 14. Le fallback si un signal snapshot manque
@@ -608,7 +768,7 @@ Cette logique est importante pour respecter :
 
 Tu peux résumer l'architecture comme ça :
 
-> Nous séparons Factory Writer en quatre flux complémentaires. Temporal orchestre le cycle de vie de chaque SKU et attend les événements métier tardifs. Dataform et BigQuery fabriquent à l'avance les signaux marketing à partir des ventes et des reviews, y compris la partie GenAI sur les reviews, mais toujours hors du hot path. Le style guide est ingéré et validé dans un flux admin distinct pour publier un style pack versionné. Enfin, un lab offline séparé utilise Vertex AI pour évaluer et optimiser les prompts sans impacter le SLA de production.
+> Nous séparons Factory Writer en quatre flux complémentaires. Temporal orchestre le cycle de vie de chaque SKU et attend les événements métier tardifs. Dataform et BigQuery fabriquent à l'avance les signaux marketing à partir des ventes et des reviews, y compris la partie GenAI sur les reviews, mais toujours hors du hot path. Le style guide est ingéré et validé dans un flux admin distinct pour publier un style pack versionné. Enfin, un lab offline séparé utilise Langfuse pour les prompts, traces, datasets et scores, et Vertex AI comme moteur avancé optionnel d'évaluation/optimisation, sans impacter le SLA de production.
 
 ## 16. Conclusion
 
@@ -620,7 +780,9 @@ La version la plus solide de l'architecture Axolotl en avril 2026 est donc :
 - **BigQuery + Dataform** pour la fabrication récurrente des signaux ventes/reviews
 - **AI.GENERATE_TABLE** uniquement comme brique batch d'enrichissement review, jamais comme dépendance runtime
 - **LiteLLM** pour la chaîne de génération
-- **Vertex AI** pour l'évaluation et l'optimisation offline
+- **Langfuse** pour le prompt registry, les traces, datasets, experiments et scores
+- **Vertex AI** pour l'évaluation et l'optimisation offline avancée, optionnelle et encadrée
+- **Postgres** pour la `generation_recipe_active` et les promotions
 
 Ce n'est pas une architecture "LLM partout".  
 C'est une architecture où chaque brique a un rôle précis, stable et justifiable.
@@ -641,3 +803,11 @@ C'est une architecture où chaque brique a un rôle précis, stable et justifiab
 - [Document AI Gemini layout parser](https://docs.cloud.google.com/document-ai/docs/layout-parse-chunk)
 - [Vertex AI evaluation overview](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/models/evaluation-overview)
 - [Vertex AI prompt optimizer](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/learn/prompts/prompt-optimizer)
+- [Langfuse prompt management overview](https://langfuse.com/docs/prompt-management/overview)
+- [Langfuse prompt version control](https://langfuse.com/docs/prompt-management/features/prompt-version-control)
+- [Langfuse link prompts to traces](https://langfuse.com/docs/prompt-management/features/link-to-traces)
+- [Langfuse datasets](https://langfuse.com/docs/evaluation/experiments/datasets)
+- [Langfuse experiments via SDK](https://langfuse.com/docs/evaluation/experiments/experiments-via-sdk)
+- [Langfuse scores via SDK/API](https://langfuse.com/docs/evaluation/evaluation-methods/scores-via-sdk)
+- [Langfuse LiteLLM integration](https://langfuse.com/integrations/frameworks/litellm-sdk)
+- [Langfuse OpenTelemetry SDK](https://langfuse.com/docs/observability/sdk/overview)

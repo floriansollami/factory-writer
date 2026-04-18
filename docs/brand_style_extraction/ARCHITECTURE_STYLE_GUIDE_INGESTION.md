@@ -34,11 +34,14 @@ La décision d’architecture est la suivante :
 - cette pipeline est **hors hot path**
 - le runtime produit ne lit **jamais le PDF source**
 - le runtime lit uniquement un **`style_pack_version` approuvé**
+- le prompt d'extraction est versionné dans **Langfuse** en cible
+- Postgres conserve la preuve d'audit du prompt exact utilisé pour produire le pack candidat
 
 Autrement dit :
 
 - **source éditoriale** = document brut
 - **source runtime** = pack structuré validé
+- **source LLMOps** = prompt versionné + trace Langfuse
 
 Cette séparation est essentielle pour :
 
@@ -93,6 +96,7 @@ Le **pack canonique** sert à :
 - versionner
 - corriger
 - approuver
+- tracer le prompt et le modèle qui ont produit le brouillon
 
 Le **snapshot runtime** sert à :
 
@@ -202,6 +206,24 @@ Le **snapshot runtime** sert à :
   ]
 }
 ```
+
+Le pack stocké en base doit aussi garder les métadonnées LLMOps minimales :
+
+```json
+{
+  "prompt_registry_provider": "local",
+  "prompt_name": "style_guide_extract_rules",
+  "prompt_version": "v1",
+  "llm_model": "vertex_ai/gemini-3-pro-preview",
+  "llm_temperature": 0.0,
+  "llm_max_tokens": 4096,
+  "llm_response_format": "style_pack_candidate_v1",
+  "system_prompt_hash": "sha256:...",
+  "user_prompt_hash": "sha256:..."
+}
+```
+
+Ces champs ne remplacent pas les règles métier. Ils permettent de prouver quel prompt, quel modèle et quelle trace ont produit le pack brouillon relu par Sophie.
 
 ---
 
@@ -414,8 +436,32 @@ Une fois les chunks extraits, il faut les transformer en structure métier.
 
 ### Recommandation principale
 
+- **Langfuse** pour récupérer la version exacte du prompt d'extraction et tracer l'appel
 - **LiteLLM**
 - appel vers un modèle capable de structured outputs
+
+### Pourquoi Langfuse ici
+
+Le prompt d'extraction du guide de style est une politique applicative importante. Il décide comment transformer des fragments documentaires en règles de marque. Il ne doit donc pas rester invisible dans un fichier non tracé quand on passe en cible production.
+
+Langfuse sert à :
+
+- stocker les versions du prompt d'extraction
+- comparer les diffs entre versions
+- rattacher chaque appel LLM à la version de prompt utilisée
+- construire plus tard des datasets d'extraction de style guide
+- comparer des variantes de prompts sans redéployer le code
+
+La règle de gouvernance reste :
+
+```text
+Langfuse stocke le prompt.
+LiteLLM exécute le modèle.
+Postgres stocke le pack style produit et la référence d'audit.
+Sophie approuve ou refuse.
+```
+
+Pour le POC strict, le prompt peut rester dans Git. Pour le POC+ et la cible, il doit être importé dans Langfuse.
 
 ### Pourquoi LiteLLM ici
 
@@ -535,8 +581,10 @@ flowchart TD
     E --> F["Read source from GCS"]
     F --> G["Document AI Layout Parser"]
     G --> H["Normalize chunks + headings"]
-    H --> I["LLM structured extraction via LiteLLM"]
-    I --> J["Deterministic validation"]
+    H --> I0["Load extraction prompt<br/>Langfuse or Git POC fallback"]
+    I0 --> I["LLM structured extraction via LiteLLM"]
+    I --> I2["Trace prompt version + output<br/>in Langfuse"]
+    I2 --> J["Deterministic validation"]
     J --> K["Create style_pack candidate"]
     K --> L["Brand review task for Sophie"]
     L --> M{"Approved ?"}
@@ -606,7 +654,7 @@ Le pack canonique, lui, reste la version riche et gouvernable.
 
 ## 8. Stratégie de versioning
 
-Il faut distinguer trois niveaux :
+Il faut distinguer quatre niveaux :
 
 ### 8.1. document source
 
@@ -614,13 +662,23 @@ Exemple :
 
 - `brand_style_guide_2026_04.pdf`
 
-### 9.2. version candidate
+### 8.2. prompt d'extraction
+
+Exemple :
+
+- `prompt_name = style_guide_extract_rules`
+- `prompt_version = v1`
+- `llm_response_format = style_pack_candidate_v1`
+
+Ce niveau est géré par Langfuse en cible. Il permet de savoir si une mauvaise extraction vient du document, du modèle ou du prompt.
+
+### 8.3. version candidate
 
 Exemple :
 
 - `style_pack_candidate_v7`
 
-### 9.3. version publiée
+### 8.4. version publiée
 
 Exemple :
 
@@ -639,11 +697,13 @@ La promotion runtime n’a lieu qu’après :
 - review humaine
 - approbation explicite
 
+Langfuse peut avoir des labels comme `candidate`, `staging` ou `production`, mais le pack actif reste décidé dans Postgres. Cela évite qu'un changement de label dans un outil LLMOps modifie seul le comportement runtime.
+
 ---
 
-## 10. POC vs cible
+## 9. POC vs cible
 
-## 10.1. POC recommandé
+## 9.1. POC recommandé
 
 Pour le POC, je recommande :
 
@@ -652,6 +712,8 @@ Pour le POC, je recommande :
 - 2 `TONE` principaux :
   - `mobilier_jardin`
   - `outils_jardin`
+- prompts d'extraction versionnés dans Git si Langfuse n'est pas encore branché
+- champs d'audit LLM minimaux dans `pack_style` : prompt, modèle, température, format de réponse et hashes des prompts rendus
 - validation humaine obligatoire avant activation
 - runtime qui ne résout que :
   - `voice_rules`
@@ -667,10 +729,13 @@ Cela suffit pour démontrer :
 - la gouvernance de Sophie
 - l’intégration runtime propre
 
-## 10.2. Architecture cible
+## 9.2. Architecture cible
 
 À maturité, tu peux ajouter :
 
+- Langfuse comme prompt registry effectif
+- traces Langfuse pour chaque extraction de style guide
+- datasets Langfuse construits depuis les extractions corrigées par Sophie
 - plusieurs langues
 - plusieurs markets
 - tones par sous-famille
@@ -680,20 +745,43 @@ Cela suffit pour démontrer :
 
 ---
 
-## 11. Où mettre Vertex dans cette brique
+## 10. Où mettre Langfuse et Vertex dans cette brique
 
-Vertex n’est pas obligatoire pour la chaîne de base.
+Langfuse et Vertex n'ont pas la même responsabilité.
 
 La chaîne de base la plus pragmatique est :
 
 - Document AI Layout Parser
+- prompt d'extraction versionné dans Git ou Langfuse
 - LiteLLM structured extraction
+- trace Langfuse si activé
 - validation locale
 - human approval
 
+### Là où Langfuse devient utile
+
+Langfuse est utile dès que tu veux sortir du prompt hardcodé :
+
+- registry du prompt d'extraction
+- version explicite utilisée pour chaque ingestion
+- lien prompt version -> trace -> pack candidat
+- dataset des extractions corrigées par Sophie
+- comparaison de deux prompts d'extraction sans redéploiement
+
+Langfuse est donc le bon outil pour le cycle :
+
+```text
+prompt candidate
+-> ingestion style guide
+-> trace
+-> correction humaine
+-> dataset
+-> nouvelle version de prompt
+```
+
 ### Là où Vertex devient utile
 
-En lab/offline, pour optimiser :
+Vertex devient utile en lab/offline avancé, pour optimiser :
 
 - le prompt d’extraction des règles
 - la qualité du classement `VOICE` vs `TONE`
@@ -705,6 +793,8 @@ Tu peux alors utiliser :
 - `zero-shot optimizer` pour itérer vite au départ
 - `few-shot optimizer` quand tu as quelques bons exemples annotés
 - `data-driven optimizer` quand tu as un vrai dataset de style guides et d’extractions attendues
+
+La recommandation est de ne jamais auto-promouvoir une version produite par un optimizer. Vertex peut proposer, Langfuse peut stocker la variante, mais Postgres et la review humaine décident de l'activation.
 
 ### Évaluations adaptées
 
@@ -719,7 +809,7 @@ Pour cette brique, les évaluations les plus pertinentes sont :
 
 ---
 
-## 11 bis. Quelle stratégie d’évaluation adopter pour cette brique
+## 10 bis. Quelle stratégie d’évaluation adopter pour cette brique
 
 La bonne base pour Axolotl est :
 
@@ -815,7 +905,7 @@ Et seulement ensuite, si le volume ou la fréquence des changements augmente :
 
 ---
 
-## 12. Recommandation finale
+## 11. Recommandation finale
 
 La meilleure architecture pour l’ingestion du guide de style Axolotl est :
 
@@ -824,6 +914,7 @@ La meilleure architecture pour l’ingestion du guide de style Axolotl est :
 - **Cloud Run** pour recevoir l’événement et enregistrer l’ingestion
 - **Temporal** pour orchestrer le workflow
 - **Document AI Layout Parser** pour parser et chunker
+- **Langfuse** pour versionner le prompt d'extraction et tracer les appels LLM
 - **LiteLLM** pour transformer les chunks en structure métier
 - **validation déterministe** pour garantir la cohérence
 - **human approval** pour garantir la fidélité de marque
@@ -835,7 +926,7 @@ Et la règle d’or est :
 
 ---
 
-## 13. Sources utilisées
+## 12. Sources utilisées
 
 - [FINAL_ARCHITECTURE.md](/Users/floriansollami/Documents/GitHub/factory-writer/docs/FINAL_ARCHITECTURE.md)
 - [Document AI Layout Parser](https://docs.cloud.google.com/document-ai/docs/layout-parse-chunk)
@@ -846,6 +937,11 @@ Et la règle d’or est :
 - [Vertex AI system instructions](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/learn/prompts/system-instructions)
 - [Vertex AI prompt templates](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/learn/prompts/prompt-templates)
 - [Vertex AI introduction to prompt design](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/learn/prompts/introduction-prompt-design)
+- [Langfuse prompt management overview](https://langfuse.com/docs/prompt-management/overview)
+- [Langfuse prompt version control](https://langfuse.com/docs/prompt-management/features/prompt-version-control)
+- [Langfuse link prompts to traces](https://langfuse.com/docs/prompt-management/features/link-to-traces)
+- [Langfuse datasets](https://langfuse.com/docs/evaluation/experiments/datasets)
+- [Langfuse LiteLLM integration](https://langfuse.com/integrations/frameworks/litellm-sdk)
 - [Temporal task queues](https://docs.temporal.io/task-queue)
 - [Temporal workers](https://docs.temporal.io/workers)
 - [Temporal workflow definition](https://docs.temporal.io/workflow-definition)

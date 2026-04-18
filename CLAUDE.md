@@ -11,7 +11,7 @@ Si tu mélanges optimisation, judge LLM, pairwise, calibrations humaines et gén
 Le point qui manquait dans ma réponse précédente est celui-ci :
 
 **le online ne part pas d’un prompt “brut non optimisé”.**  
-Le online utilise toujours un **`prompt_package_actif` déjà promu offline**.
+Le online utilise toujours une **`generation_recipe_active` déjà promue offline**.
 
 Autrement dit :
 
@@ -49,7 +49,7 @@ Avant de publier la première vraie fiche automatiquement, tu construis :
 - un dataset de départ avec historiques Axolotl
 - quelques cas annotés manuellement
 - quelques cas synthétiques difficiles
-- un `prompt_package_v1` pour :
+- une `generation_recipe_v1` pour :
   - claim plan
   - redaction plan
   - final draft
@@ -75,7 +75,7 @@ Quand un nouveau SKU arrive :
 
 Ensuite, les traces de prod, les sorties validées, les corrections humaines et les cas ratés repartent dans le lab offline pour produire :
 
-- `prompt_package_v2`
+- `generation_recipe_v2`
 - puis `v3`
 - etc.
 
@@ -289,7 +289,7 @@ Ce serait faux.
 
 Le vrai cycle est :
 
-1. **offline** fabrique et promeut un `prompt_package_actif`
+1. **offline** fabrique et promeut une `generation_recipe_active`
 2. **online** utilise ce package actif pour générer les nouveaux SKU
 3. **online** applique des gates :
    - facts OK
@@ -711,7 +711,8 @@ Tu perds toute capacité d’optimisation fine.
 L’offline ne produit pas directement une fiche frontend.  
 Il produit surtout :
 
-- `prompt_package_version`
+- `generation_recipe_version`
+- `prompt_name` / `prompt_version`
 - `model_profile`
 - `exemplar_pack`
 - `routing_policy`
@@ -942,7 +943,7 @@ flowchart LR
         R --> S["Pointwise + pairwise + custom metrics"]
         S --> T["Human calibration sample"]
         T --> U["Promotion gate"]
-        U --> V["Active prompt package"]
+        U --> V["Active generation recipe"]
     end
 
     V --> K
@@ -988,7 +989,7 @@ Pour rester clair et démontrable, je recommande ces objets canonique côté Pos
 - `fact_evidence`
 - `analytics_snapshot`
 - `context_snapshot`
-- `prompt_package_version`
+- `prompt_registry_ref`
 - `generation_job`
 - `llm_call_trace`
 - `claim_plan`
@@ -1075,7 +1076,7 @@ Il faut juste le piloter avec :
 
 - model profiles
 - fallback policy
-- prompt package versioning
+- generation recipe versioning
 - runtime traces
 
 ### Style guide

@@ -4,6 +4,14 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: factory-writer-deploy-${{ github.ref }}
+  cancel-in-progress: false
 
 env:
   PROJECT_ID: factory-writer-poc-1776097019
@@ -14,14 +22,20 @@ env:
   TEMPORAL_ADDRESS: factory-writer-poc.waxwe.tmprl.cloud:7233
   TEMPORAL_NAMESPACE: factory-writer-poc.waxwe
   TEMPORAL_DEPLOYMENT_NAME: factory-writer
-  GCP_LOCATION: europe-west1
+  GCP_LOCATION: global
   GCP_DOCUMENT_AI_LOCATION: eu
   GCP_DOCUMENT_AI_PROCESSOR_ID: 684ca2ae2323b47c
+  GCP_DOCUMENT_AI_PROCESSOR_VERSION: pretrained-layout-parser-v1.5-2025-08-25
   GCP_STYLE_GUIDE_BUCKET_NAME: factory-writer-poc-1776097019-brand-styles
+  LLM_STYLE_GUIDE_TIMEOUT_SECONDS: "90"
+  EVENTARC_STYLE_GUIDE_TRIGGER: factory-writer-style-guide-finalized
+  EVENTARC_TRIGGER_SERVICE_ACCOUNT: eventarc-style-trigger@factory-writer-poc-1776097019.iam.gserviceaccount.com
+  RUNTIME_SERVICE_ACCOUNT: factory-writer-runtime@factory-writer-poc-1776097019.iam.gserviceaccount.com
 
 jobs:
   quality:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
 
@@ -30,12 +44,12 @@ jobs:
         uses: actions/checkout@0c366fd6a839edf440554fa01a7085ccba70ac98
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
         with:
           python-version: "3.12"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@94527f2e458b27549849d47d273a16bec83a01e9
         with:
           version: "0.11.6"
           enable-cache: true
@@ -46,11 +60,15 @@ jobs:
 
       - name: Lint backend
         working-directory: backend
-        run: uv run ruff check src/factory_writer alembic
+        run: uv run ruff check src/factory_writer alembic tests
 
       - name: Type-check backend
         working-directory: backend
-        run: uv run mypy --explicit-package-bases src/factory_writer alembic
+        run: uv run mypy --explicit-package-bases src/factory_writer alembic tests
+
+      - name: Test backend
+        working-directory: backend
+        run: uv run pytest
 
       - name: Compile backend sources
         working-directory: backend
@@ -59,6 +77,7 @@ jobs:
   build-and-push:
     runs-on: ubuntu-latest
     needs: quality
+    timeout-minutes: 30
     permissions:
       contents: read
       id-token: write
@@ -69,26 +88,10 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@0c366fd6a839edf440554fa01a7085ccba70ac98
 
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v7
-        with:
-          version: "0.11.6"
-          enable-cache: true
-
       - name: Compute image metadata
         id: meta
         run: |
           echo "image=${REGION}-docker.pkg.dev/${PROJECT_ID}/${ARTIFACT_REPOSITORY}/${IMAGE_NAME}:${GITHUB_SHA}" >> "${GITHUB_OUTPUT}"
-
-      - name: Supply chain scan prep
-        run: |
-          cd backend
-          uv export --frozen > requirements.txt
 
       - name: Authenticate to Google Cloud (WIF)
         uses: google-github-actions/auth@fc2174804b84f912b1f6d334e9463f484f1c552d
@@ -105,9 +108,14 @@ jobs:
       - name: Build and push Docker image
         run: |
           gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
-          gcloud artifacts repositories create "${ARTIFACT_REPOSITORY}" \
-            --repository-format=docker \
-            --location="${REGION}" || true
+          if ! gcloud artifacts repositories describe "${ARTIFACT_REPOSITORY}" \
+            --project="${PROJECT_ID}" \
+            --location="${REGION}" >/dev/null 2>&1; then
+            gcloud artifacts repositories create "${ARTIFACT_REPOSITORY}" \
+              --project="${PROJECT_ID}" \
+              --repository-format=docker \
+              --location="${REGION}"
+          fi
           docker build \
             -t "${{ steps.meta.outputs.image }}" \
             ./backend
@@ -116,6 +124,7 @@ jobs:
   migrate-db:
     runs-on: ubuntu-latest
     needs: build-and-push
+    timeout-minutes: 20
     permissions:
       contents: read
       id-token: write
@@ -142,17 +151,37 @@ jobs:
             --task-timeout=600s \
             --max-retries=1 \
             --tasks=1 \
+            --service-account="${RUNTIME_SERVICE_ACCOUNT}" \
             --set-cloudsql-instances="${CLOUDSQL_INSTANCE}" \
-            --set-env-vars="GCP__PROJECT_ID=${PROJECT_ID},GCP__LOCATION=${GCP_LOCATION},GCP__DOCUMENT_AI_LOCATION=${GCP_DOCUMENT_AI_LOCATION},GCP__DOCUMENT_AI_PROCESSOR_ID=${GCP_DOCUMENT_AI_PROCESSOR_ID},GCP__STYLE_GUIDE_BUCKET_NAME=${GCP_STYLE_GUIDE_BUCKET_NAME},TEMPORAL__ADDRESS=${TEMPORAL_ADDRESS},TEMPORAL__NAMESPACE=${TEMPORAL_NAMESPACE},TEMPORAL__DEPLOYMENT_NAME=${TEMPORAL_DEPLOYMENT_NAME}" \
+            --set-env-vars="GCP__PROJECT_ID=${PROJECT_ID},GCP__LOCATION=${GCP_LOCATION},GCP__DOCUMENT_AI_LOCATION=${GCP_DOCUMENT_AI_LOCATION},GCP__DOCUMENT_AI_PROCESSOR_ID=${GCP_DOCUMENT_AI_PROCESSOR_ID},GCP__DOCUMENT_AI_PROCESSOR_VERSION=${GCP_DOCUMENT_AI_PROCESSOR_VERSION},GCP__STYLE_GUIDE_BUCKET_NAME=${GCP_STYLE_GUIDE_BUCKET_NAME},TEMPORAL__ADDRESS=${TEMPORAL_ADDRESS},TEMPORAL__NAMESPACE=${TEMPORAL_NAMESPACE},TEMPORAL__DEPLOYMENT_NAME=${TEMPORAL_DEPLOYMENT_NAME},LLM__STYLE_GUIDE_TIMEOUT_SECONDS=${LLM_STYLE_GUIDE_TIMEOUT_SECONDS}" \
             --set-secrets="TEMPORAL__API_KEY=temporal-api-key:latest,DB__URL=db-url:latest" \
             --command=alembic \
             --args=-c,alembic.ini,upgrade,head \
             --execute-now \
             --wait
 
+      - name: Deploy and execute taxonomy seed job
+        run: |
+          gcloud run jobs deploy factory-writer-db-seed \
+            --image="${{ needs.build-and-push.outputs.image }}" \
+            --project="${PROJECT_ID}" \
+            --region="${REGION}" \
+            --task-timeout=300s \
+            --max-retries=1 \
+            --tasks=1 \
+            --service-account="${RUNTIME_SERVICE_ACCOUNT}" \
+            --set-cloudsql-instances="${CLOUDSQL_INSTANCE}" \
+            --set-env-vars="GCP__PROJECT_ID=${PROJECT_ID},GCP__LOCATION=${GCP_LOCATION},GCP__DOCUMENT_AI_LOCATION=${GCP_DOCUMENT_AI_LOCATION},GCP__DOCUMENT_AI_PROCESSOR_ID=${GCP_DOCUMENT_AI_PROCESSOR_ID},GCP__DOCUMENT_AI_PROCESSOR_VERSION=${GCP_DOCUMENT_AI_PROCESSOR_VERSION},GCP__STYLE_GUIDE_BUCKET_NAME=${GCP_STYLE_GUIDE_BUCKET_NAME},TEMPORAL__ADDRESS=${TEMPORAL_ADDRESS},TEMPORAL__NAMESPACE=${TEMPORAL_NAMESPACE},TEMPORAL__DEPLOYMENT_NAME=${TEMPORAL_DEPLOYMENT_NAME},LLM__STYLE_GUIDE_TIMEOUT_SECONDS=${LLM_STYLE_GUIDE_TIMEOUT_SECONDS}" \
+            --set-secrets="TEMPORAL__API_KEY=temporal-api-key:latest,DB__URL=db-url:latest" \
+            --command=python \
+            --args=-m,factory_writer.scripts.seed_taxonomie \
+            --execute-now \
+            --wait
+
   deploy-api:
     runs-on: ubuntu-latest
     needs: [build-and-push, migrate-db]
+    timeout-minutes: 20
     permissions:
       contents: read
       id-token: write
@@ -176,16 +205,45 @@ jobs:
             --image="${{ needs.build-and-push.outputs.image }}" \
             --project="${PROJECT_ID}" \
             --region="${REGION}" \
-            --allow-unauthenticated \
+            --no-allow-unauthenticated \
+            --service-account="${RUNTIME_SERVICE_ACCOUNT}" \
             --set-cloudsql-instances="${CLOUDSQL_INSTANCE}" \
-            --set-env-vars="GCP__PROJECT_ID=${PROJECT_ID},GCP__LOCATION=${GCP_LOCATION},GCP__DOCUMENT_AI_LOCATION=${GCP_DOCUMENT_AI_LOCATION},GCP__DOCUMENT_AI_PROCESSOR_ID=${GCP_DOCUMENT_AI_PROCESSOR_ID},GCP__STYLE_GUIDE_BUCKET_NAME=${GCP_STYLE_GUIDE_BUCKET_NAME},TEMPORAL__ADDRESS=${TEMPORAL_ADDRESS},TEMPORAL__NAMESPACE=${TEMPORAL_NAMESPACE},TEMPORAL__DEPLOYMENT_NAME=${TEMPORAL_DEPLOYMENT_NAME}" \
+            --set-env-vars="GCP__PROJECT_ID=${PROJECT_ID},GCP__LOCATION=${GCP_LOCATION},GCP__DOCUMENT_AI_LOCATION=${GCP_DOCUMENT_AI_LOCATION},GCP__DOCUMENT_AI_PROCESSOR_ID=${GCP_DOCUMENT_AI_PROCESSOR_ID},GCP__DOCUMENT_AI_PROCESSOR_VERSION=${GCP_DOCUMENT_AI_PROCESSOR_VERSION},GCP__STYLE_GUIDE_BUCKET_NAME=${GCP_STYLE_GUIDE_BUCKET_NAME},TEMPORAL__ADDRESS=${TEMPORAL_ADDRESS},TEMPORAL__NAMESPACE=${TEMPORAL_NAMESPACE},TEMPORAL__DEPLOYMENT_NAME=${TEMPORAL_DEPLOYMENT_NAME},LLM__STYLE_GUIDE_TIMEOUT_SECONDS=${LLM_STYLE_GUIDE_TIMEOUT_SECONDS}" \
             --set-secrets="TEMPORAL__API_KEY=temporal-api-key:latest,DB__URL=db-url:latest" \
             --command=uvicorn \
             --args=factory_writer.main:app,--host,0.0.0.0,--port,8080
 
+      - name: Grant Eventarc invoker access to API
+        run: |
+          gcloud run services add-iam-policy-binding factory-writer-api \
+            --project="${PROJECT_ID}" \
+            --region="${REGION}" \
+            --member="serviceAccount:${EVENTARC_TRIGGER_SERVICE_ACCOUNT}" \
+            --role="roles/run.invoker" \
+            --quiet
+
+      - name: Ensure Eventarc trigger for style guide uploads
+        run: |
+          if gcloud eventarc triggers describe "${EVENTARC_STYLE_GUIDE_TRIGGER}" \
+            --project="${PROJECT_ID}" \
+            --location="${REGION}" >/dev/null 2>&1; then
+            echo "Eventarc trigger ${EVENTARC_STYLE_GUIDE_TRIGGER} already exists."
+          else
+            gcloud eventarc triggers create "${EVENTARC_STYLE_GUIDE_TRIGGER}" \
+              --project="${PROJECT_ID}" \
+              --location="${REGION}" \
+              --destination-run-service=factory-writer-api \
+              --destination-run-region="${REGION}" \
+              --destination-run-path=/webhooks/eventarc/style-guide \
+              --event-filters="type=google.cloud.storage.object.v1.finalized" \
+              --event-filters="bucket=${GCP_STYLE_GUIDE_BUCKET_NAME}" \
+              --service-account="${EVENTARC_TRIGGER_SERVICE_ACCOUNT}"
+          fi
+
   deploy-workers:
     runs-on: ubuntu-latest
     needs: [build-and-push, migrate-db]
+    timeout-minutes: 20
     permissions:
       contents: read
       id-token: write
@@ -195,15 +253,15 @@ jobs:
         include:
           - role: style-guide-ingestion
             worker_pool: factory-writer-style-guide-ingestion
-            scaling: 1
+            instances: 1
             enabled_poc: true
           - role: sku-lifecycle
             worker_pool: factory-writer-sku-lifecycle
-            scaling: 1
+            instances: 1
             enabled_poc: true
           - role: offline-evaluation
             worker_pool: factory-writer-offline-evaluation
-            scaling: 0
+            instances: 0
             enabled_poc: false
 
     steps:
@@ -228,9 +286,10 @@ jobs:
             --image="${{ needs.build-and-push.outputs.image }}" \
             --project="${PROJECT_ID}" \
             --region="${REGION}" \
-            --scaling="${{ matrix.scaling }}" \
+            --instances="${{ matrix.instances }}" \
+            --service-account="${RUNTIME_SERVICE_ACCOUNT}" \
             --set-cloudsql-instances="${CLOUDSQL_INSTANCE}" \
-            --set-env-vars="GCP__PROJECT_ID=${PROJECT_ID},GCP__LOCATION=${GCP_LOCATION},GCP__DOCUMENT_AI_LOCATION=${GCP_DOCUMENT_AI_LOCATION},GCP__DOCUMENT_AI_PROCESSOR_ID=${GCP_DOCUMENT_AI_PROCESSOR_ID},GCP__STYLE_GUIDE_BUCKET_NAME=${GCP_STYLE_GUIDE_BUCKET_NAME},TEMPORAL__ADDRESS=${TEMPORAL_ADDRESS},TEMPORAL__NAMESPACE=${TEMPORAL_NAMESPACE},TEMPORAL__DEPLOYMENT_NAME=${TEMPORAL_DEPLOYMENT_NAME},TEMPORAL__WORKER_ROLE=${{ matrix.role }}" \
+            --set-env-vars="GCP__PROJECT_ID=${PROJECT_ID},GCP__LOCATION=${GCP_LOCATION},GCP__DOCUMENT_AI_LOCATION=${GCP_DOCUMENT_AI_LOCATION},GCP__DOCUMENT_AI_PROCESSOR_ID=${GCP_DOCUMENT_AI_PROCESSOR_ID},GCP__DOCUMENT_AI_PROCESSOR_VERSION=${GCP_DOCUMENT_AI_PROCESSOR_VERSION},GCP__STYLE_GUIDE_BUCKET_NAME=${GCP_STYLE_GUIDE_BUCKET_NAME},TEMPORAL__ADDRESS=${TEMPORAL_ADDRESS},TEMPORAL__NAMESPACE=${TEMPORAL_NAMESPACE},TEMPORAL__DEPLOYMENT_NAME=${TEMPORAL_DEPLOYMENT_NAME},TEMPORAL__WORKER_ROLE=${{ matrix.role }},LLM__STYLE_GUIDE_TIMEOUT_SECONDS=${LLM_STYLE_GUIDE_TIMEOUT_SECONDS}" \
             --set-secrets="TEMPORAL__API_KEY=temporal-api-key:latest,DB__URL=db-url:latest" \
             --command=python \
             --args=-m,factory_writer.temporal.worker

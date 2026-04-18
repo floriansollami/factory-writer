@@ -10,12 +10,10 @@ from sqlalchemy.exc import SQLAlchemyError
 from factory_writer.api.routes.eventarc_router import router as eventarc_router
 from factory_writer.core.config import get_settings
 from factory_writer.core.logger import setup_logging
-from factory_writer.domain.exceptions import FactoryWriterError
 from factory_writer.infrastructure.database.session import dispose_engine
 
 settings = get_settings()
 
-# Interception globale stdlib -> Structlog
 setup_logging()
 
 logger = structlog.get_logger(__name__)
@@ -47,25 +45,6 @@ async def health_check() -> dict[str, str]:
 
 
 app.include_router(eventarc_router, prefix="/webhooks/eventarc", tags=["Webhooks", "Eventarc"])
-
-
-@app.exception_handler(FactoryWriterError)
-async def factory_writer_exception_handler(
-    request: Request,
-    exc: FactoryWriterError,
-) -> JSONResponse:
-    logger.error(
-        "factory_writer_error",
-        path=request.url.path,
-        code=exc.code,
-        retryable=exc.retryable,
-        status_code=exc.status_code,
-        exc_info=exc,
-    )
-    return JSONResponse(
-        status_code=exc.status_code,
-        content={"error": exc.message, "code": exc.code},
-    )
 
 
 @app.exception_handler(SQLAlchemyError)

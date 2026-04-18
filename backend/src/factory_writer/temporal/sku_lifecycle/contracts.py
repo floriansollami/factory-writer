@@ -32,7 +32,7 @@ class SkuLifecycleState(TemporalPayloadModel):
     facts_snapshot_id: str | None = None
     signal_snapshot_id: str | None = None
     style_pack_id: str | None = None
-    prompt_package_id: str | None = None
+    generation_recipe_id: str | None = None
     publication_decision: PublicationDecision | None = None
     published_content_id: str | None = None
 
@@ -81,12 +81,12 @@ class StylePackResult(TemporalPayloadModel):
     version_label: str
 
 
-class PromptPackageLoadInput(TemporalPayloadModel):
+class GenerationRecipeLoadInput(TemporalPayloadModel):
     product: ProductContextRef
 
 
-class PromptPackageResult(TemporalPayloadModel):
-    prompt_package_id: str
+class GenerationRecipeResult(TemporalPayloadModel):
+    generation_recipe_id: str
     version_label: str
 
 
@@ -95,7 +95,7 @@ class ContextSnapshot(TemporalPayloadModel):
     facts: TechnicalFactsExtractionResult
     signals: SignalSnapshotResult
     style_pack: StylePackResult
-    prompt_package: PromptPackageResult
+    generation_recipe: GenerationRecipeResult
 
 
 class GenerationStepInput(TemporalPayloadModel):

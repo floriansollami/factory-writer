@@ -1,17 +1,13 @@
-from factory_writer.application.ports.style_guide_ingestion import (
-    DocumentAIProcessResult,
-    GcsObjectMetadata,
-    StyleGuideDocumentParserPort,
-    StyleGuideRepositoryPort,
-    StyleGuideSourceSnapshot,
-    StyleGuideStoragePort,
+from .llm_gateway import (
+    LLMCompletionRequest,
+    LLMCompletionResponse,
+    LLMGatewayPort,
+    LLMMessage,
 )
 
 __all__ = [
-    "DocumentAIProcessResult",
-    "GcsObjectMetadata",
-    "StyleGuideDocumentParserPort",
-    "StyleGuideRepositoryPort",
-    "StyleGuideSourceSnapshot",
-    "StyleGuideStoragePort",
+    "LLMCompletionRequest",
+    "LLMCompletionResponse",
+    "LLMGatewayPort",
+    "LLMMessage",
 ]

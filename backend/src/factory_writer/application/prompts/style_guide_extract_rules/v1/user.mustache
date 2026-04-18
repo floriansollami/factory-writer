@@ -1,0 +1,41 @@
+<mission>
+Produis un style pack candidat pour Axolotl.
+Ce pack sera relu par Sophie avant activation runtime.
+</mission>
+
+<langue>fr-FR</langue>
+
+<familles_autorisees_json>
+{{taxonomies_json}}
+</familles_autorisees_json>
+
+<fragments_guide_style_json>
+{{fragments_json}}
+</fragments_guide_style_json>
+
+<strategie_extraction>
+1. Lis uniquement les fragments fournis dans fragments_guide_style_json.
+2. Extrais une regle seulement si elle est directement supportee par un fragment.
+3. Pour chaque regle, renseigne fragment_source_id avec l'identifiant exact du fragment source.
+4. Pour chaque regle, renseigne citation_source avec un court extrait copie depuis ce fragment.
+5. Reformule texte_regle en contrainte atomique, sans ajouter de sens absent de la citation.
+6. Utilise famille_code uniquement si la regle cible clairement une famille autorisee.
+7. Utilise famille_code=null pour une regle globale de marque.
+8. Si une regle semble contextuelle mais que la famille produit n'est pas claire, ignore cette regle.
+9. Ne produis pas de regle speculative, implicite ou basee sur des connaissances externes.
+</strategie_extraction>
+
+<rappels_metier>
+- VOIX = regle globale de marque, applicable a tous les produits.
+- TON = regle contextuelle liee a une famille produit autorisee.
+- FORMATAGE = regle de structure, longueur, forme ou syntaxe.
+- PROMESSE_INTERDITE = claim ou formulation interdite.
+- HARD = contrainte bloquante.
+- SOFT = preference forte mais non bloquante.
+</rappels_metier>
+
+<regles_de_nullite>
+- famille_code doit etre null pour VOIX et pour toute regle globale.
+- famille_code ne doit jamais contenir une valeur inventee.
+- Si la valeur correcte n'est pas certaine, n'extrais pas la regle au lieu de remplir au hasard.
+</regles_de_nullite>

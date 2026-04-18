@@ -23,6 +23,8 @@ dependencies = [
     "greenlet>=3.4.0",
     "structlog",
     "asgi-correlation-id",
+    "google-cloud-documentai-toolbox>=0.15.2",
+    "mstache>=0.3.0",
 ]
 
 [project.optional-dependencies]
@@ -30,8 +32,6 @@ dev = [
     "ruff",
     "mypy",
     "pytest",
-    "pytest-asyncio",
-    "httpx",
 ]
 
 [tool.ruff]
@@ -44,6 +44,7 @@ ignore = ["E501", "B008"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/factory_writer"]
+artifacts = ["src/factory_writer/application/prompts/**/*.mustache"]
 
 [tool.mypy]
 mypy_path = "src"

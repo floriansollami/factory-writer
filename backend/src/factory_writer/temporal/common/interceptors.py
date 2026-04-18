@@ -9,18 +9,16 @@ from temporalio.worker import (
     Interceptor,
 )
 
-from factory_writer.domain.exceptions import FactoryWriterError
-
 
 class DomainErrorActivityInterceptor(ActivityInboundInterceptor):
     async def execute_activity(self, input: ExecuteActivityInput) -> Any:
         try:
             return await self.next.execute_activity(input)
-        except FactoryWriterError as exc:
+        except (ValueError, KeyError, FileNotFoundError) as exc:
             raise ApplicationError(
-                exc.message,
-                type=exc.code,
-                non_retryable=not exc.retryable,
+                str(exc),
+                type=type(exc).__name__,
+                non_retryable=True,
             ) from exc
 
 

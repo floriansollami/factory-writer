@@ -14,7 +14,7 @@ from factory_writer.temporal.common.worker_runtime import (
 )
 from factory_writer.temporal.offline_evaluation.activities import (
     load_evaluation_batch,
-    promote_prompt_package_candidate,
+    promote_generation_recipe_candidate,
     run_vertex_prompt_evaluation,
 )
 from factory_writer.temporal.offline_evaluation.workflow import OfflineEvaluationWorkflow
@@ -34,7 +34,7 @@ async def main() -> None:
         activities=[
             load_evaluation_batch,
             run_vertex_prompt_evaluation,
-            promote_prompt_package_candidate,
+            promote_generation_recipe_candidate,
         ],
         build_id=settings.temporal.build_id,
         use_worker_versioning=deployment_config is not None,

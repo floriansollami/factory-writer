@@ -1,5 +1,6 @@
 import logging
 import sys
+from typing import Any
 
 import structlog
 
@@ -25,14 +26,12 @@ def setup_logging() -> None:
         structlog.processors.UnicodeDecoder(),
     ]
 
-    from typing import Any
-
     # Rendu dynamique (DEBUG = Console humaine claire, PROD = JSON pur Machine)
-    renderer: Any = None
-    if settings.debug:
-        renderer = structlog.dev.ConsoleRenderer(colors=True)
-    else:
-        renderer = structlog.processors.JSONRenderer()
+    renderer: Any = (
+        structlog.dev.ConsoleRenderer(colors=True)
+        if settings.debug
+        else structlog.processors.JSONRenderer()
+    )
 
     # Cœur de Structlog
     structlog.configure(

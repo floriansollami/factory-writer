@@ -1,7 +1,5 @@
 from enum import StrEnum
 
-from factory_writer.domain.exceptions import ConfigurationError
-
 
 class WorkerRole(StrEnum):
     SKU_LIFECYCLE = "sku-lifecycle"
@@ -33,7 +31,6 @@ def parse_worker_role(raw_role: str) -> WorkerRole:
         return _ALIASES[normalized]
     except KeyError as exc:
         supported = ", ".join(sorted(_ALIASES))
-        raise ConfigurationError(
-            f"Unsupported WORKER_ROLE `{raw_role}`. Supported values: {supported}",
-            code="INVALID_WORKER_ROLE",
+        raise ValueError(
+            f"Unsupported WORKER_ROLE `{raw_role}`. Supported values: {supported}"
         ) from exc

@@ -19,7 +19,7 @@ from factory_writer.temporal.offline_evaluation.contracts import (
 with workflow.unsafe.imports_passed_through():
     from factory_writer.temporal.offline_evaluation.activities import (
         load_evaluation_batch,
-        promote_prompt_package_candidate,
+        promote_generation_recipe_candidate,
         run_vertex_prompt_evaluation,
     )
 
@@ -58,21 +58,21 @@ class OfflineEvaluationWorkflow:
             start_to_close_timeout=MEDIUM_ACTIVITY_TIMEOUT,
             retry_policy=OFFLINE_RETRY_POLICY,
         )
-        self.state.candidate_prompt_package_id = candidate.prompt_package_id
+        self.state.candidate_generation_recipe_id = candidate.generation_recipe_id
 
-        promoted_prompt_package_id: str | None = None
+        promoted_generation_recipe_id: str | None = None
         if not payload.dry_run:
-            promoted_prompt_package_id = await workflow.execute_activity(
-                promote_prompt_package_candidate,
+            promoted_generation_recipe_id = await workflow.execute_activity(
+                promote_generation_recipe_candidate,
                 candidate,
                 task_queue=TaskQueue.OFFLINE_EVALUATION.value,
                 start_to_close_timeout=MEDIUM_ACTIVITY_TIMEOUT,
                 retry_policy=OFFLINE_RETRY_POLICY,
             )
-            self.state.promoted_prompt_package_id = promoted_prompt_package_id
+            self.state.promoted_generation_recipe_id = promoted_generation_recipe_id
 
         return OfflineEvaluationOutput(
             status="success",
-            candidate_prompt_package_id=candidate.prompt_package_id,
-            promoted_prompt_package_id=promoted_prompt_package_id,
+            candidate_generation_recipe_id=candidate.generation_recipe_id,
+            promoted_generation_recipe_id=promoted_generation_recipe_id,
         )

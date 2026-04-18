@@ -13,11 +13,11 @@ Ce document sert de source de vérité pour les choix architecturaux et l'outill
 - **Performance** : Les résolutions (`uv lock`) s'exécutent en quelques millisecondes grâce au moteur écrit en Rust.
 - **Isolant** : Les environnements (`.venv`) sont gérés nativement et les installations `uv sync` verrouillent parfaitement les versions pour la production.
 
-### `Just` : Le Task Runner (Monorepo Ready)
+### `Make` : Le Task Runner POC
 - **Équivalent Node.js** : La section `"scripts"` du `package.json` (`npm run ...`).
-- **Rôle** : Agit comme un `Makefile` moderne.
-- **Implémentation** : Fichier central `Justfile` à la racine.
-- **Vision long terme** : Sépare les tâches Python des tâches de l'infrastructure ou du futur frontend (ex: `just dev-backend`, `just lint`). Ce design "Language Agnostic" est impératif pour intégrer plus tard du React/Vue/Node.
+- **Rôle** : centralise les commandes locales du POC.
+- **Implémentation** : fichier central `Makefile` à la racine.
+- **Vision long terme** : si un frontend est ajouté, on pourra migrer vers un task runner monorepo plus riche. Pour le POC, `make` évite de maintenir deux systèmes de commandes concurrents.
 
 ---
 
