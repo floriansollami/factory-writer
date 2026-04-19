@@ -258,7 +258,7 @@ jobs:
           - role: sku-lifecycle
             worker_pool: factory-writer-sku-lifecycle
             instances: 1
-            enabled_poc: true
+            enabled_poc: false
           - role: offline-evaluation
             worker_pool: factory-writer-offline-evaluation
             instances: 0
