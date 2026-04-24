@@ -1,0 +1,996 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ERD POC Final Simplifie</title>
+  <style>
+    @page { size: A4; margin: 14mm 12mm 14mm 12mm; }
+    :root {
+      --ink: #1f2937;
+      --muted: #5b6472;
+      --line: #d9dee7;
+      --soft: #f5f7fa;
+      --accent: #275d49;
+    }
+    * { box-sizing: border-box; }
+    html { font-size: 12px; }
+    body {
+      margin: 0; color: var(--ink); background: white;
+      font-family: "SF Pro Text", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+      line-height: 1.45;
+      -webkit-print-color-adjust: exact; print-color-adjust: exact;
+    }
+    .page {
+      width: 100%; max-width: 186mm; margin: 0 auto;
+    }
+    h1, h2, h3 { color: #14202b; margin: 0 0 0.45rem 0; break-after: avoid; }
+    h1 { font-size: 1.9rem; line-height: 1.15; margin-bottom: 0.75rem; }
+    h2 { font-size: 1.22rem; margin-top: 1.4rem; padding-top: 0.2rem; border-top: 1px solid var(--line); }
+    h3 { font-size: 1rem; margin-top: 1rem; }
+    p, li { color: var(--ink); }
+    p { margin: 0.25rem 0 0.7rem; }
+    ul, ol { margin: 0.3rem 0 0.8rem 1.15rem; padding: 0; }
+    li { margin: 0.16rem 0; }
+    code { background: var(--soft); border: 1px solid var(--line); border-radius: 4px; padding: 0.08rem 0.28rem; font-size: 0.92em; }
+    pre { background: #0f1720; color: #edf2f7; padding: 0.85rem; border-radius: 10px; overflow-x: auto; font-size: 0.82rem; line-height: 1.38; white-space: pre-wrap; word-break: break-word; }
+    pre code { background: transparent; border: 0; color: inherit; padding: 0; }
+    table { width: 100%; border-collapse: collapse; margin: 0.6rem 0 1rem; table-layout: fixed; }
+    thead { display: table-header-group; }
+    tr, table, figure, pre { break-inside: avoid; }
+    th, td { border: 1px solid var(--line); padding: 0.48rem 0.52rem; vertical-align: top; text-align: left; word-break: break-word; overflow-wrap: anywhere; }
+    th { background: #eef3f8; color: #18212c; font-weight: 650; }
+    tbody tr:nth-child(even) td { background: #fbfcfd; }
+    blockquote { margin: 0.8rem 0; padding: 0.2rem 0 0.2rem 0.85rem; border-left: 3px solid var(--accent); color: var(--muted); }
+    .erd-figure {
+      margin: 0.5rem 0 0.9rem;
+      padding: 0.45rem;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #fcfdfd;
+      break-inside: avoid-page;
+      page-break-inside: avoid;
+    }
+    .erd-figure img {
+      display: block;
+      width: auto;
+      max-width: 100%;
+      max-height: 235mm;
+      margin: 0 auto;
+      object-fit: contain;
+    }
+    .erd-figure figcaption { margin-top: 0.45rem; color: var(--muted); font-size: 0.9rem; text-align: center; }
+    .meta { margin: 0 0 1rem; color: var(--muted); font-size: 0.9rem; }
+    hr { border: 0; border-top: 1px solid var(--line); margin: 1rem 0; }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <div class="meta">Factory Writer · ERD POC final simplifie · format A4</div>
+<h1>ERD POC final simplifie</h1>
+<p>Ce document fige le modele POC simplifie pour l&#39;ingestion du guide de style et des dossiers techniques usine.</p>
+<p>Le perimetre POC est volontairement limite :</p>
+<ul>
+<li>style guide : un dossier global, un PDF, extraction via Document AI Layout Parser, generation d&#39;un pack candidat, validation humaine regle par regle ;</li>
+<li>dossiers techniques usine : un dossier par produit, plusieurs PDFs separes, Custom Classifier, Enterprise OCR, Custom Extractor Foundation Model, validation deterministe et review humaine par exception ;</li>
+<li>pas de Custom Splitter ;</li>
+<li>pas de table de preuves abstraite ;</li>
+<li>une preuve principale denormalisee dans <code>style_rule</code> et <code>technical_fact_candidate</code>.</li>
+</ul>
+<h2>ERD final simplifie</h2>
+<figure class="erd-figure"><img src="ERD_POC_FINAL_SIMPLIFIED.png" alt="ERD final simplifie" /><figcaption>ERD final simplifie</figcaption></figure><h2>Enums simplifies</h2>
+<table>
+<thead>
+<tr>
+<th>Enum</th>
+<th>Valeurs</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>collection_kind</code></td>
+<td><code>STYLE_GUIDE</code>, <code>TECHNICAL_DOSSIER</code></td>
+</tr>
+<tr>
+<td><code>document_type</code></td>
+<td><code>STYLE_GUIDE</code>, <code>TECHNICAL_SHEET</code>, <code>BLUEPRINT</code>, <code>ECO_CERTIFICATE</code>, <code>ASSEMBLY_NOTICE</code>, <code>MATERIAL_SPECIFICATION</code>, <code>UNKNOWN</code></td>
+</tr>
+<tr>
+<td><code>document_collection.statut</code></td>
+<td><code>EN_ATTENTE</code>, <code>EN_COURS</code>, <code>A_VALIDER</code>, <code>TERMINE</code>, <code>ERREUR</code></td>
+</tr>
+<tr>
+<td><code>document_source.statut</code></td>
+<td><code>EN_ATTENTE</code>, <code>EN_COURS</code>, <code>TERMINE</code>, <code>ERREUR</code></td>
+</tr>
+<tr>
+<td><code>document_ingestion_run.statut</code></td>
+<td><code>EN_ATTENTE</code>, <code>EN_COURS</code>, <code>A_VALIDER</code>, <code>TERMINE</code>, <code>ERREUR</code>, <code>ANNULE</code></td>
+</tr>
+<tr>
+<td><code>current_step</code></td>
+<td><code>UPLOAD</code>, <code>DOCUMENT_CLASSIFICATION</code>, <code>OCR_PROOF</code>, <code>LAYOUT_PARSE</code>, <code>FACT_EXTRACTION</code>, <code>DETERMINISTIC_VALIDATION</code>, <code>LLM_DRAFT_PACK</code>, <code>HUMAN_REVIEW</code>, <code>PROMOTION</code>, <code>DONE</code></td>
+</tr>
+<tr>
+<td><code>style_pack.statut</code></td>
+<td><code>BROUILLON</code>, <code>ACTIF</code>, <code>ARCHIVE</code></td>
+</tr>
+<tr>
+<td><code>style_rule.decision_editoriale</code></td>
+<td><code>A_VALIDER</code>, <code>APPROUVEE</code>, <code>DESACTIVEE</code></td>
+</tr>
+<tr>
+<td><code>style_rule.origine</code></td>
+<td><code>LLM</code>, <code>MODIFIEE</code></td>
+</tr>
+<tr>
+<td><code>type_regle</code></td>
+<td><code>VOIX</code>, <code>TON</code>, <code>FORMATAGE</code>, <code>PROMESSE_INTERDITE</code></td>
+</tr>
+<tr>
+<td><code>niveau_contrainte</code></td>
+<td><code>HARD</code>, <code>SOFT</code></td>
+</tr>
+<tr>
+<td><code>technical_fact_candidate.validation_status</code></td>
+<td><code>AUTO_VALIDATED</code>, <code>NEEDS_REVIEW</code>, <code>REJECTED</code>, <code>PROMOTED</code></td>
+</tr>
+<tr>
+<td><code>technical_review_case.case_type</code></td>
+<td><code>CLASSIFICATION_UNCERTAIN</code>, <code>LOW_OCR_QUALITY</code>, <code>DOCUMENT_UNREADABLE</code>, <code>MISSING_REQUIRED_FIELD</code>, <code>LOW_CONFIDENCE</code>, <code>VALUE_OUT_OF_RANGE</code>, <code>EXACT_MATCH_FAILED</code>, <code>CONTRADICTION</code>, <code>LLM_SELF_CHECK_FLAG</code></td>
+</tr>
+<tr>
+<td><code>technical_review_case.trigger_source</code></td>
+<td><code>CLASSIFIER</code>, <code>OCR</code>, <code>CUSTOM_EXTRACTOR</code>, <code>PYTHON_VALIDATOR</code>, <code>LLM_SELF_CHECK</code></td>
+</tr>
+<tr>
+<td><code>technical_review_case.severity</code></td>
+<td><code>BLOCKING</code>, <code>WARNING</code></td>
+</tr>
+<tr>
+<td><code>technical_review_case.status</code></td>
+<td><code>A_TRAITER</code>, <code>APPROUVE</code>, <code>CORRIGE</code>, <code>REJETE</code>, <code>DOCUMENT_A_REMPLACER</code></td>
+</tr>
+<tr>
+<td><code>technical_review_case.resolution_action</code></td>
+<td><code>APPROVE_DETECTED_VALUE</code>, <code>CORRECT_VALUE</code>, <code>REJECT_VALUE</code>, <code>REQUEST_NEW_DOCUMENT</code></td>
+</tr>
+<tr>
+<td><code>technical_fact.validation_source</code></td>
+<td><code>SYSTEM</code>, <code>HUMAN</code></td>
+</tr>
+<tr>
+<td><code>extraction_method</code></td>
+<td><code>EXTRACT</code>, <code>DERIVE</code></td>
+</tr>
+</tbody></table>
+<h2>1. <code>product</code></h2>
+<table>
+<thead>
+<tr>
+<th>Champ</th>
+<th>Exemple complet</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>id</code></td>
+<td><code>prod_001</code></td>
+</tr>
+<tr>
+<td><code>sku</code></td>
+<td><code>AXO-TABLE-TECK-190</code></td>
+</tr>
+<tr>
+<td><code>name</code></td>
+<td><code>Table en teck 190 cm</code></td>
+</tr>
+<tr>
+<td><code>taxonomie_produit_id</code></td>
+<td><code>taxo_mobilier_jardin</code></td>
+</tr>
+<tr>
+<td><code>created_at</code></td>
+<td><code>2026-04-20T10:00:00Z</code></td>
+</tr>
+<tr>
+<td><code>updated_at</code></td>
+<td><code>2026-04-20T10:00:00Z</code></td>
+</tr>
+</tbody></table>
+<h2>2. <code>document_collection</code></h2>
+<table>
+<thead>
+<tr>
+<th>Champ</th>
+<th>Exemple style guide</th>
+<th>Exemple dossier usine</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>id</code></td>
+<td><code>coll_style_001</code></td>
+<td><code>coll_tech_001</code></td>
+</tr>
+<tr>
+<td><code>collection_kind</code></td>
+<td><code>STYLE_GUIDE</code></td>
+<td><code>TECHNICAL_DOSSIER</code></td>
+</tr>
+<tr>
+<td><code>product_id</code></td>
+<td><code>null</code></td>
+<td><code>prod_001</code></td>
+</tr>
+<tr>
+<td><code>statut</code></td>
+<td><code>A_VALIDER</code></td>
+<td><code>A_VALIDER</code></td>
+</tr>
+<tr>
+<td><code>replaced_by_collection_id</code></td>
+<td><code>null</code></td>
+<td><code>null</code></td>
+</tr>
+<tr>
+<td><code>dernier_message_erreur</code></td>
+<td><code>null</code></td>
+<td><code>Certification FSC manquante</code></td>
+</tr>
+<tr>
+<td><code>created_at</code></td>
+<td><code>2026-04-20T10:00:00Z</code></td>
+<td><code>2026-04-20T10:10:00Z</code></td>
+</tr>
+<tr>
+<td><code>updated_at</code></td>
+<td><code>2026-04-20T10:30:00Z</code></td>
+<td><code>2026-04-20T10:30:00Z</code></td>
+</tr>
+</tbody></table>
+<p>Contraintes :</p>
+<pre><code class="language-text">STYLE_GUIDE =&gt; product_id IS NULL
+
+TECHNICAL_DOSSIER =&gt; product_id IS NOT NULL
+</code></pre>
+<h2>3. <code>document_source</code></h2>
+<table>
+<thead>
+<tr>
+<th>Champ</th>
+<th>Exemple style guide</th>
+<th>Exemple dossier usine</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>id</code></td>
+<td><code>src_style_pdf_001</code></td>
+<td><code>src_tech_sheet_001</code></td>
+</tr>
+<tr>
+<td><code>collection_id</code></td>
+<td><code>coll_style_001</code></td>
+<td><code>coll_tech_001</code></td>
+</tr>
+<tr>
+<td><code>original_file_name</code></td>
+<td><code>AXOLOTL_STYLE_GUIDE_V4.pdf</code></td>
+<td><code>fiche_technique.pdf</code></td>
+</tr>
+<tr>
+<td><code>storage_uri</code></td>
+<td><code>gs://factory-writer/style-guide.pdf</code></td>
+<td><code>gs://factory-writer/fiche_technique.pdf</code></td>
+</tr>
+<tr>
+<td><code>storage_bucket</code></td>
+<td><code>factory-writer</code></td>
+<td><code>factory-writer</code></td>
+</tr>
+<tr>
+<td><code>storage_object_name</code></td>
+<td><code>sources/style-guides/style-guide.pdf</code></td>
+<td><code>technical-dossiers/prod_001/fiche_technique.pdf</code></td>
+</tr>
+<tr>
+<td><code>storage_generation</code></td>
+<td><code>1776626134167000</code></td>
+<td><code>1776627000000000</code></td>
+</tr>
+<tr>
+<td><code>storage_metageneration</code></td>
+<td><code>1</code></td>
+<td><code>1</code></td>
+</tr>
+<tr>
+<td><code>storage_content_type</code></td>
+<td><code>application/pdf</code></td>
+<td><code>application/pdf</code></td>
+</tr>
+<tr>
+<td><code>storage_size_bytes</code></td>
+<td><code>842139</code></td>
+<td><code>1934021</code></td>
+</tr>
+<tr>
+<td><code>document_type</code></td>
+<td><code>STYLE_GUIDE</code></td>
+<td><code>TECHNICAL_SHEET</code></td>
+</tr>
+<tr>
+<td><code>classification_confidence</code></td>
+<td><code>null</code></td>
+<td><code>0.94</code></td>
+</tr>
+<tr>
+<td><code>quality_score_min</code></td>
+<td><code>null</code></td>
+<td><code>0.82</code></td>
+</tr>
+<tr>
+<td><code>quality_score_avg</code></td>
+<td><code>null</code></td>
+<td><code>0.93</code></td>
+</tr>
+<tr>
+<td><code>quality_metadata_json</code></td>
+<td><code>null</code></td>
+<td><code>{&quot;defects&quot;:[]}</code></td>
+</tr>
+<tr>
+<td><code>statut</code></td>
+<td><code>TERMINE</code></td>
+<td><code>TERMINE</code></td>
+</tr>
+<tr>
+<td><code>replaced_by_source_id</code></td>
+<td><code>null</code></td>
+<td><code>null</code></td>
+</tr>
+<tr>
+<td><code>dernier_message_erreur</code></td>
+<td><code>null</code></td>
+<td><code>null</code></td>
+</tr>
+<tr>
+<td><code>created_at</code></td>
+<td><code>2026-04-20T10:00:00Z</code></td>
+<td><code>2026-04-20T10:10:00Z</code></td>
+</tr>
+<tr>
+<td><code>updated_at</code></td>
+<td><code>2026-04-20T10:20:00Z</code></td>
+<td><code>2026-04-20T10:20:00Z</code></td>
+</tr>
+</tbody></table>
+<h2>4. <code>document_ingestion_run</code></h2>
+<table>
+<thead>
+<tr>
+<th>Champ</th>
+<th>Exemple style guide</th>
+<th>Exemple dossier usine</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>id</code></td>
+<td><code>run_style_001</code></td>
+<td><code>run_tech_001</code></td>
+</tr>
+<tr>
+<td><code>collection_id</code></td>
+<td><code>coll_style_001</code></td>
+<td><code>coll_tech_001</code></td>
+</tr>
+<tr>
+<td><code>pipeline_kind</code></td>
+<td><code>STYLE_GUIDE_EXTRACTION</code></td>
+<td><code>TECHNICAL_DOSSIER_EXTRACTION</code></td>
+</tr>
+<tr>
+<td><code>statut</code></td>
+<td><code>A_VALIDER</code></td>
+<td><code>A_VALIDER</code></td>
+</tr>
+<tr>
+<td><code>current_step</code></td>
+<td><code>HUMAN_REVIEW</code></td>
+<td><code>HUMAN_REVIEW</code></td>
+</tr>
+<tr>
+<td><code>temporal_workflow_id</code></td>
+<td><code>style-guide-ingestion-run_style_001</code></td>
+<td><code>technical-dossier-ingestion-run_tech_001</code></td>
+</tr>
+<tr>
+<td><code>temporal_run_id</code></td>
+<td><code>7c1a...</code></td>
+<td><code>8d2b...</code></td>
+</tr>
+<tr>
+<td><code>extraction_steps_json</code></td>
+<td>voir exemple ci-dessous</td>
+<td>voir exemple ci-dessous</td>
+</tr>
+<tr>
+<td><code>validation_summary_json</code></td>
+<td><code>{&quot;rules_generated&quot;:12,&quot;rules_to_review&quot;:12}</code></td>
+<td><code>{&quot;auto_validated&quot;:8,&quot;review_cases&quot;:2}</code></td>
+</tr>
+<tr>
+<td><code>error_message</code></td>
+<td><code>null</code></td>
+<td><code>null</code></td>
+</tr>
+<tr>
+<td><code>started_at</code></td>
+<td><code>2026-04-20T10:02:00Z</code></td>
+<td><code>2026-04-20T10:15:00Z</code></td>
+</tr>
+<tr>
+<td><code>completed_at</code></td>
+<td><code>null</code></td>
+<td><code>null</code></td>
+</tr>
+<tr>
+<td><code>created_at</code></td>
+<td><code>2026-04-20T10:02:00Z</code></td>
+<td><code>2026-04-20T10:15:00Z</code></td>
+</tr>
+<tr>
+<td><code>updated_at</code></td>
+<td><code>2026-04-20T10:28:00Z</code></td>
+<td><code>2026-04-20T10:28:00Z</code></td>
+</tr>
+</tbody></table>
+<p>Exemple <code>extraction_steps_json</code> style guide :</p>
+<pre><code class="language-json">[
+  {
+    &quot;step_kind&quot;: &quot;LAYOUT_PARSE&quot;,
+    &quot;provider&quot;: &quot;google_document_ai&quot;,
+    &quot;processor_kind&quot;: &quot;layout_parser&quot;,
+    &quot;processor_version&quot;: &quot;pretrained-layout-parser-v1.6-pro-2025-12-01&quot;,
+    &quot;provider_job_id&quot;: &quot;projects/.../operations/123&quot;,
+    &quot;status&quot;: &quot;SUCCEEDED&quot;,
+    &quot;output_uri&quot;: &quot;gs://.../style-guide-layout/run_style_001/&quot;,
+    &quot;request_config&quot;: {
+      &quot;chunking_config&quot;: {
+        &quot;chunk_size&quot;: 1000,
+        &quot;include_ancestor_headings&quot;: true
+      }
+    }
+  },
+  {
+    &quot;step_kind&quot;: &quot;LLM_DRAFT_PACK&quot;,
+    &quot;provider&quot;: &quot;litellm_sdk&quot;,
+    &quot;model&quot;: &quot;vertex_ai/gemini-3-pro-preview&quot;,
+    &quot;status&quot;: &quot;SUCCEEDED&quot;
+  }
+]
+</code></pre>
+<p>Exemple <code>extraction_steps_json</code> dossier usine :</p>
+<pre><code class="language-json">[
+  {
+    &quot;step_kind&quot;: &quot;DOCUMENT_CLASSIFICATION&quot;,
+    &quot;provider&quot;: &quot;google_document_ai&quot;,
+    &quot;processor_kind&quot;: &quot;custom_classifier&quot;,
+    &quot;processor_version&quot;: &quot;classifier-v1&quot;,
+    &quot;status&quot;: &quot;SUCCEEDED&quot;
+  },
+  {
+    &quot;step_kind&quot;: &quot;OCR_PROOF&quot;,
+    &quot;provider&quot;: &quot;google_document_ai&quot;,
+    &quot;processor_kind&quot;: &quot;enterprise_ocr&quot;,
+    &quot;request_config&quot;: {
+      &quot;enableNativePdfParsing&quot;: true,
+      &quot;enableImageQualityScores&quot;: true
+    },
+    &quot;status&quot;: &quot;SUCCEEDED&quot;
+  },
+  {
+    &quot;step_kind&quot;: &quot;FACT_EXTRACTION&quot;,
+    &quot;provider&quot;: &quot;google_document_ai&quot;,
+    &quot;processor_kind&quot;: &quot;custom_extractor_foundation_model&quot;,
+    &quot;processor_version&quot;: &quot;foundation-v1&quot;,
+    &quot;status&quot;: &quot;SUCCEEDED&quot;
+  },
+  {
+    &quot;step_kind&quot;: &quot;DETERMINISTIC_VALIDATION&quot;,
+    &quot;provider&quot;: &quot;factory_writer&quot;,
+    &quot;status&quot;: &quot;NEEDS_REVIEW&quot;
+  }
+]
+</code></pre>
+<h2>5. <code>style_pack</code></h2>
+<table>
+<thead>
+<tr>
+<th>Champ</th>
+<th>Exemple complet</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>id</code></td>
+<td><code>pack_001</code></td>
+</tr>
+<tr>
+<td><code>ingestion_run_id</code></td>
+<td><code>run_style_001</code></td>
+</tr>
+<tr>
+<td><code>statut</code></td>
+<td><code>BROUILLON</code></td>
+</tr>
+<tr>
+<td><code>est_actif</code></td>
+<td><code>false</code></td>
+</tr>
+<tr>
+<td><code>prompt_registry_provider</code></td>
+<td><code>local</code></td>
+</tr>
+<tr>
+<td><code>prompt_name</code></td>
+<td><code>style_guide_extract_rules</code></td>
+</tr>
+<tr>
+<td><code>prompt_version</code></td>
+<td><code>v1</code></td>
+</tr>
+<tr>
+<td><code>llm_model</code></td>
+<td><code>vertex_ai/gemini-3-pro-preview</code></td>
+</tr>
+<tr>
+<td><code>llm_temperature</code></td>
+<td><code>0.0</code></td>
+</tr>
+<tr>
+<td><code>llm_max_tokens</code></td>
+<td><code>8192</code></td>
+</tr>
+<tr>
+<td><code>llm_response_format_name</code></td>
+<td><code>style_pack_candidate_v1</code></td>
+</tr>
+<tr>
+<td><code>rendered_system_prompt_hash</code></td>
+<td><code>sha256:abc...</code></td>
+</tr>
+<tr>
+<td><code>rendered_user_prompt_hash</code></td>
+<td><code>sha256:def...</code></td>
+</tr>
+<tr>
+<td><code>validation_summary_json</code></td>
+<td><code>{&quot;rules_validated&quot;:12,&quot;deduplicated&quot;:1}</code></td>
+</tr>
+<tr>
+<td><code>approuve_le</code></td>
+<td><code>null</code></td>
+</tr>
+<tr>
+<td><code>created_at</code></td>
+<td><code>2026-04-20T10:05:00Z</code></td>
+</tr>
+<tr>
+<td><code>updated_at</code></td>
+<td><code>2026-04-20T10:05:00Z</code></td>
+</tr>
+</tbody></table>
+<h2>6. <code>style_rule</code></h2>
+<table>
+<thead>
+<tr>
+<th>Champ</th>
+<th>Exemple complet</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>id</code></td>
+<td><code>rule_001</code></td>
+</tr>
+<tr>
+<td><code>pack_id</code></td>
+<td><code>pack_001</code></td>
+</tr>
+<tr>
+<td><code>taxonomie_produit_id</code></td>
+<td><code>taxo_mobilier_jardin</code></td>
+</tr>
+<tr>
+<td><code>type_regle</code></td>
+<td><code>TON</code></td>
+</tr>
+<tr>
+<td><code>niveau_contrainte</code></td>
+<td><code>SOFT</code></td>
+</tr>
+<tr>
+<td><code>texte_regle_original</code></td>
+<td><code>Favoriser matière, stabilité et scène extérieure.</code></td>
+</tr>
+<tr>
+<td><code>texte_regle</code></td>
+<td><code>Favoriser la matière, la stabilité et l’usage extérieur.</code></td>
+</tr>
+<tr>
+<td><code>decision_editoriale</code></td>
+<td><code>A_VALIDER</code></td>
+</tr>
+<tr>
+<td><code>est_actif</code></td>
+<td><code>false</code></td>
+</tr>
+<tr>
+<td><code>origine</code></td>
+<td><code>LLM</code></td>
+</tr>
+<tr>
+<td><code>source_evidence_text</code></td>
+<td><code>SR-01 mobilier_jardin Favoriser matière, stabilité, confort d&#39;usage et scène de vie extérieure.</code></td>
+</tr>
+<tr>
+<td><code>source_evidence_provider_id</code></td>
+<td><code>c1</code></td>
+</tr>
+<tr>
+<td><code>source_evidence_page_start</code></td>
+<td><code>1</code></td>
+</tr>
+<tr>
+<td><code>source_evidence_page_end</code></td>
+<td><code>1</code></td>
+</tr>
+<tr>
+<td><code>source_evidence_json</code></td>
+<td><code>{&quot;chunkId&quot;:&quot;c1&quot;,&quot;pageSpan&quot;:{&quot;pageStart&quot;:1,&quot;pageEnd&quot;:1}}</code></td>
+</tr>
+<tr>
+<td><code>commentaire_review</code></td>
+<td><code>null</code></td>
+</tr>
+<tr>
+<td><code>reviewed_at</code></td>
+<td><code>null</code></td>
+</tr>
+<tr>
+<td><code>reviewed_by</code></td>
+<td><code>null</code></td>
+</tr>
+<tr>
+<td><code>created_at</code></td>
+<td><code>2026-04-20T10:05:10Z</code></td>
+</tr>
+<tr>
+<td><code>updated_at</code></td>
+<td><code>2026-04-20T10:05:10Z</code></td>
+</tr>
+</tbody></table>
+<h2>7. <code>technical_fact_candidate</code></h2>
+<table>
+<thead>
+<tr>
+<th>Champ</th>
+<th>Exemple complet</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>id</code></td>
+<td><code>fact_cand_001</code></td>
+</tr>
+<tr>
+<td><code>ingestion_run_id</code></td>
+<td><code>run_tech_001</code></td>
+</tr>
+<tr>
+<td><code>source_id</code></td>
+<td><code>src_tech_sheet_001</code></td>
+</tr>
+<tr>
+<td><code>field_name</code></td>
+<td><code>dimension_width_cm</code></td>
+</tr>
+<tr>
+<td><code>raw_value</code></td>
+<td><code>190 cm</code></td>
+</tr>
+<tr>
+<td><code>normalized_value</code></td>
+<td><code>190</code></td>
+</tr>
+<tr>
+<td><code>unit</code></td>
+<td><code>cm</code></td>
+</tr>
+<tr>
+<td><code>extractor_confidence</code></td>
+<td><code>0.96</code></td>
+</tr>
+<tr>
+<td><code>extraction_method</code></td>
+<td><code>EXTRACT</code></td>
+</tr>
+<tr>
+<td><code>validation_status</code></td>
+<td><code>AUTO_VALIDATED</code></td>
+</tr>
+<tr>
+<td><code>review_required</code></td>
+<td><code>false</code></td>
+</tr>
+<tr>
+<td><code>review_reason</code></td>
+<td><code>null</code></td>
+</tr>
+<tr>
+<td><code>source_evidence_text</code></td>
+<td><code>190 cm</code></td>
+</tr>
+<tr>
+<td><code>source_page</code></td>
+<td><code>2</code></td>
+</tr>
+<tr>
+<td><code>source_bbox_json</code></td>
+<td><code>{&quot;left&quot;:0.12,&quot;top&quot;:0.43,&quot;width&quot;:0.04,&quot;height&quot;:0.02}</code></td>
+</tr>
+<tr>
+<td><code>raw_entity_json</code></td>
+<td><code>{&quot;type&quot;:&quot;dimension_width_cm&quot;,&quot;mentionText&quot;:&quot;190 cm&quot;,&quot;confidence&quot;:0.96}</code></td>
+</tr>
+<tr>
+<td><code>created_at</code></td>
+<td><code>2026-04-20T10:24:00Z</code></td>
+</tr>
+<tr>
+<td><code>updated_at</code></td>
+<td><code>2026-04-20T10:24:00Z</code></td>
+</tr>
+</tbody></table>
+<h2>8. <code>technical_review_case</code></h2>
+<table>
+<thead>
+<tr>
+<th>Champ</th>
+<th>Exemple complet</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>id</code></td>
+<td><code>case_001</code></td>
+</tr>
+<tr>
+<td><code>ingestion_run_id</code></td>
+<td><code>run_tech_001</code></td>
+</tr>
+<tr>
+<td><code>source_id</code></td>
+<td><code>src_tech_sheet_001</code></td>
+</tr>
+<tr>
+<td><code>fact_candidate_id</code></td>
+<td><code>fact_cand_001</code></td>
+</tr>
+<tr>
+<td><code>case_type</code></td>
+<td><code>VALUE_OUT_OF_RANGE</code></td>
+</tr>
+<tr>
+<td><code>trigger_source</code></td>
+<td><code>PYTHON_VALIDATOR</code></td>
+</tr>
+<tr>
+<td><code>severity</code></td>
+<td><code>BLOCKING</code></td>
+</tr>
+<tr>
+<td><code>status</code></td>
+<td><code>A_TRAITER</code></td>
+</tr>
+<tr>
+<td><code>field_name</code></td>
+<td><code>dimension_width_cm</code></td>
+</tr>
+<tr>
+<td><code>title</code></td>
+<td><code>Largeur hors bornes attendues</code></td>
+</tr>
+<tr>
+<td><code>description</code></td>
+<td><code>La valeur 1900 cm dépasse la borne maximale attendue pour mobilier_jardin.</code></td>
+</tr>
+<tr>
+<td><code>detected_value</code></td>
+<td><code>1900</code></td>
+</tr>
+<tr>
+<td><code>detected_unit</code></td>
+<td><code>cm</code></td>
+</tr>
+<tr>
+<td><code>suggested_value</code></td>
+<td><code>190</code></td>
+</tr>
+<tr>
+<td><code>suggested_unit</code></td>
+<td><code>cm</code></td>
+</tr>
+<tr>
+<td><code>corrected_value</code></td>
+<td><code>null</code></td>
+</tr>
+<tr>
+<td><code>corrected_unit</code></td>
+<td><code>null</code></td>
+</tr>
+<tr>
+<td><code>resolution_action</code></td>
+<td><code>null</code></td>
+</tr>
+<tr>
+<td><code>resolution_comment</code></td>
+<td><code>null</code></td>
+</tr>
+<tr>
+<td><code>resolved_fact_id</code></td>
+<td><code>null</code></td>
+</tr>
+<tr>
+<td><code>resolved_by</code></td>
+<td><code>null</code></td>
+</tr>
+<tr>
+<td><code>resolved_at</code></td>
+<td><code>null</code></td>
+</tr>
+<tr>
+<td><code>metadata_json</code></td>
+<td><code>{&quot;bounds&quot;:{&quot;min&quot;:40,&quot;max&quot;:400}}</code></td>
+</tr>
+<tr>
+<td><code>created_at</code></td>
+<td><code>2026-04-20T10:25:00Z</code></td>
+</tr>
+<tr>
+<td><code>updated_at</code></td>
+<td><code>2026-04-20T10:25:00Z</code></td>
+</tr>
+</tbody></table>
+<h2>9. <code>technical_fact</code></h2>
+<table>
+<thead>
+<tr>
+<th>Champ</th>
+<th>Exemple complet</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>id</code></td>
+<td><code>fact_001</code></td>
+</tr>
+<tr>
+<td><code>product_id</code></td>
+<td><code>prod_001</code></td>
+</tr>
+<tr>
+<td><code>source_candidate_id</code></td>
+<td><code>fact_cand_001</code></td>
+</tr>
+<tr>
+<td><code>field_name</code></td>
+<td><code>dimension_width_cm</code></td>
+</tr>
+<tr>
+<td><code>value</code></td>
+<td><code>190</code></td>
+</tr>
+<tr>
+<td><code>unit</code></td>
+<td><code>cm</code></td>
+</tr>
+<tr>
+<td><code>validation_source</code></td>
+<td><code>SYSTEM</code></td>
+</tr>
+<tr>
+<td><code>validated_at</code></td>
+<td><code>2026-04-20T10:26:00Z</code></td>
+</tr>
+<tr>
+<td><code>validated_by</code></td>
+<td><code>system</code></td>
+</tr>
+<tr>
+<td><code>created_at</code></td>
+<td><code>2026-04-20T10:26:00Z</code></td>
+</tr>
+<tr>
+<td><code>updated_at</code></td>
+<td><code>2026-04-20T10:26:00Z</code></td>
+</tr>
+</tbody></table>
+<h2>10. <code>taxonomie_produit</code></h2>
+<table>
+<thead>
+<tr>
+<th>Champ</th>
+<th>Exemple complet</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>id</code></td>
+<td><code>taxo_mobilier_jardin</code></td>
+</tr>
+<tr>
+<td><code>famille_code</code></td>
+<td><code>mobilier_jardin</code></td>
+</tr>
+<tr>
+<td><code>libelle_fr</code></td>
+<td><code>Mobilier de jardin</code></td>
+</tr>
+<tr>
+<td><code>parent_id</code></td>
+<td><code>null</code></td>
+</tr>
+<tr>
+<td><code>created_at</code></td>
+<td><code>2026-04-20T09:00:00Z</code></td>
+</tr>
+<tr>
+<td><code>updated_at</code></td>
+<td><code>2026-04-20T09:00:00Z</code></td>
+</tr>
+</tbody></table>
+<h2>Contraintes cles</h2>
+<pre><code class="language-text">document_collection.collection_kind = STYLE_GUIDE
+=&gt; product_id IS NULL
+
+document_collection.collection_kind = TECHNICAL_DOSSIER
+=&gt; product_id IS NOT NULL
+
+product.taxonomie_produit_id
+=&gt; FK taxonomie_produit.id
+
+document_source.storage_bucket + storage_object_name + storage_generation
+=&gt; unique
+
+document_ingestion_run.temporal_workflow_id
+=&gt; unique
+
+style_pack.est_actif = true
+=&gt; unique global pour le POC
+
+technical_fact.product_id + field_name
+=&gt; unique
+
+technical_review_case.resolved_fact_id
+=&gt; nullable, FK technical_fact.id
+
+technical_review_case.fact_candidate_id
+=&gt; nullable, car certains cas n&#39;ont aucun fact candidat
+
+technical_review_case.source_id
+=&gt; nullable, car certains cas peuvent etre globaux au dossier
+</code></pre>
+<h2>Positionnement POC</h2>
+<p>Ce modele garde :</p>
+<ul>
+<li>le guide de style ;</li>
+<li>les dossiers techniques multi-PDF ;</li>
+<li>la review humaine ;</li>
+<li>les facts valides ;</li>
+<li>les preuves principales ;</li>
+<li>le lien produit-taxonomie.</li>
+</ul>
+<p>Il evite volontairement :</p>
+<ul>
+<li>une table de preuves abstraite ;</li>
+<li>une table de preuves style-rule ;</li>
+<li>le Custom Splitter ;</li>
+<li>une table <code>document_extraction_step</code> separee.</li>
+</ul>
+<p>Les details providers et configs restent dans <code>document_ingestion_run.extraction_steps_json</code>.</p>
+
+  </main>
+</body>
+</html>

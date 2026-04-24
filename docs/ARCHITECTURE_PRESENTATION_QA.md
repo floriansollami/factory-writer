@@ -427,7 +427,7 @@ Réponse présentation :
 | Pourquoi GCS ? | Source documentaire durable, versionnable, compatible Document AI batch. |
 | Pourquoi prompt templates en code pour le POC strict ? | Plus simple pour démarrer. La cible propre est Langfuse comme prompt registry. |
 | Pourquoi Postgres garde la recette active si Langfuse a des labels ? | Parce que Langfuse versionne les prompts, mais la production doit promouvoir une recette complète : prompt, modèle, paramètres, schéma et politique de validation. |
-| Pourquoi stocker les hashes de prompts dans `pack_style` ? | Pour tracer le prompt exact sans stocker tout le prompt rendu dans la table métier. En cible Langfuse, on pourra ajouter un lien vers la trace LLMOps. |
+| Pourquoi stocker les hashes de prompts dans `style_pack` ? | Pour tracer le prompt exact sans stocker tout le prompt rendu dans la table métier. En cible Langfuse, on pourra ajouter un lien vers la trace LLMOps. |
 | Pourquoi ne pas tout évaluer en online ? | Parce que l'évaluation lourde coûte du temps et casserait le SLA. Elle doit être offline. |
 | Pourquoi pas Vertex Prompt Optimizer en automatique ? | Parce qu'un optimizer peut maximiser une métrique tout en abîmant le ton premium. Il peut proposer, mais un humain ou une promotion contrôlée décide. |
 | Comment tester un autre modèle sans casser le code ? | L'offline lab crée une recette candidate avec un autre `model_profile`, la teste via LiteLLM sur le même dataset, puis promeut seulement si les métriques gagnent. |

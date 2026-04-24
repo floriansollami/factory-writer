@@ -139,7 +139,7 @@ flowchart LR
     subgraph IN["Entrées"]
         EV1["Eventarc: product_created"]
         EV2["Eventarc: zip_usine_upload"]
-        EV3["Eventarc: style_pdf_upload"]
+        EV3["Admin UI: style guide upload + start"]
         EV4["Cron: offline evaluations"]
     end
 
@@ -148,11 +148,11 @@ flowchart LR
     end
 
     subgraph TEMP["Temporal"]
-        WF1["SkuLifecycleWorkflow"]
+        WF1["ProductLifecycleWorkflow"]
         WF2["StyleGuideIngestionWorkflow"]
         WF3["OfflineEvaluationWorkflow"]
 
-        Q1["queue: sku-lifecycle"]
+        Q1["queue: product-lifecycle"]
         Q2["queue: docai-activities"]
         Q3["queue: llm-generation"]
         Q4["queue: style-ingestion"]
@@ -243,13 +243,14 @@ Le rôle de ce couloir est :
 - lancer la génération
 - publier ou envoyer en review
 
-Le cœur de ce couloir est `SkuLifecycleWorkflow`.
+Le cœur de ce couloir est `ProductLifecycleWorkflow`.
 
 ### Couloir 2. Style guide admin
 
 Il commence avec :
 
-- `style_pdf_upload`
+- `style guide upload`
+- `start style guide ingestion`
 
 Le rôle de ce couloir est :
 
@@ -314,15 +315,15 @@ Le vrai pattern Temporal recommandé ici est :
 
 ```mermaid
 flowchart TD
-    A["Start: product_created"] --> B["Workflow: SkuLifecycleWorkflow"]
-    B --> C["wait_condition(): dossier usine disponible"]
+    A["Start: product_created"] --> B["Workflow: ProductLifecycleWorkflow"]
+    B --> C["wait_condition(): sources techniques disponibles"]
 
-    C -->|"signal dossier_received"| D["Activity: extract_archive_and_facts<br/>queue docai-activities<br/>worker-docai"]
+    C -->|"signal technical_sources_uploaded"| D["Child workflow: TechnicalDossierIngestionWorkflow"]
     D --> E["facts_valides_json + evidence + validation status"]
 
-    E --> F["Activity: load_signal_snapshot<br/>queue sku-lifecycle<br/>worker-orchestrator"]
-    E --> G["Activity: load_style_pack_actif<br/>queue sku-lifecycle<br/>worker-orchestrator"]
-    E --> H["Activity: load_generation_recipe_active<br/>queue sku-lifecycle<br/>worker-orchestrator"]
+    E --> F["Activity: load_signal_snapshot<br/>queue product-lifecycle<br/>worker-orchestrator"]
+    E --> G["Activity: load_style_pack_actif<br/>queue product-lifecycle<br/>worker-orchestrator"]
+    E --> H["Activity: load_generation_recipe_active<br/>queue product-lifecycle<br/>worker-orchestrator"]
     H --> H2["Activity: fetch_exact_prompts_from_langfuse<br/>queue llm-generation<br/>worker-llm"]
 
     F --> I["context_snapshot complet"]
@@ -330,7 +331,7 @@ flowchart TD
     H2 --> I
 
     I --> J["Activity: generate_structured_candidate<br/>queue llm-generation<br/>worker-llm"]
-    J --> J2["Activity: validate_candidate_with_python<br/>queue sku-lifecycle<br/>worker-orchestrator"]
+    J --> J2["Activity: validate_candidate_with_python<br/>queue product-lifecycle<br/>worker-orchestrator"]
     J2 -->|"needs correction"| J3["Activity: rewrite_with_validator_feedback<br/>queue llm-generation<br/>worker-llm"]
     J3 --> J2
     J2 -->|"pass"| K["publish gate"]

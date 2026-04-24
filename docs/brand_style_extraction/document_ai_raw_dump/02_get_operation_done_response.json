@@ -1,0 +1,30 @@
+{
+  "done": true,
+  "metadata": {
+    "@type": "type.googleapis.com/google.cloud.documentai.v1.BatchProcessMetadata",
+    "create_time": "2026-04-20T08:50:28.847221Z",
+    "individual_process_statuses": [
+      {
+        "human_review_status": {
+          "human_review_operation": "",
+          "state": "SKIPPED",
+          "state_message": "HumanReviewConfig is DISABLED, skipping human review."
+        },
+        "input_gcs_source": "gs://factory-writer-poc-1776097019-brand-styles/sources/style-guides/AXOLOTL_STYLE_GUIDE_V4.pdf",
+        "output_gcs_destination": "gs://factory-writer-poc-1776097019-brand-styles/_factory_writer/debug/document-ai/raw-dump/20260420-105025/14952375149151944455/0",
+        "status": {
+          "code": 0,
+          "details": [],
+          "message": ""
+        }
+      }
+    ],
+    "state": "SUCCEEDED",
+    "state_message": "",
+    "update_time": "2026-04-20T08:52:20.687460Z"
+  },
+  "name": "projects/623736074911/locations/eu/operations/14952375149151944455",
+  "response": {
+    "@type": "type.googleapis.com/google.cloud.documentai.v1.BatchProcessResponse"
+  }
+}

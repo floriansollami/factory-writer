@@ -1,0 +1,4 @@
+{
+  "error_type": "InvalidArgument",
+  "message": "400 Request contains an invalid argument. [field_violations {\n  field: \"process_options.layout_config\"\n  description: \"return_images is not supported in BatchProcessDocuments.\"\n}\n]"
+}

@@ -1,0 +1,172 @@
+// system porte maintenant le rôle, les invariants stables, et la sémantique durable des types
+// user porte la mission du run, les données injectées, le protocole de couverture/classification, et les exemples
+
+
+// eval harness
+// C’est un banc de test reproductible.
+// Tu prends un petit corpus de PDFs de référence, avec un attendu métier ou au moins des assertions de couverture, puis tu mesures :
+
+// citations attendues présentes ou non
+// types stables ou non
+// nombre de règles trop bas / trop haut
+// dérive entre plusieurs runs du même document
+// Sans ça, tu peux avoir un prompt qui “a l’air bon” sur un doc, mais qui casse discrètement sur les suivants.
+
+// multi-pass extraction
+// Au lieu de demander au modèle de tout faire d’un coup :
+
+// détecter tous les fragments
+// les classer
+// les dédupliquer
+// les transformer en JSON final
+// tu découpes.
+
+// Exemple :
+
+// pass 1 : inventorier les fragments normatifs explicites
+// pass 2 : classer chaque fragment
+// pass 3 : convertir en règles finales
+// Pourquoi c’est plus SOTA sur les cas durs :
+
+// chaque étape est plus simple
+// moins de fusion accidentelle
+// debug beaucoup plus facile
+// meilleure contrôlabilité
+// En contrepartie :
+
+// plus de coût
+// plus de latence
+// plus de code orchestration
+
+{
+  "regles": [
+    {
+      "source_evidence_provider_id": "c1",
+      "citation_source": "Vouvoiement constant et distance respectueuse.",
+      "type_regle": "VOIX",
+      "niveau_contrainte": "HARD",
+      "texte_regle": "Utiliser systématiquement le vouvoiement et maintenir une distance respectueuse avec le lecteur.",
+      "famille_code": null
+    },
+    {
+      "source_evidence_provider_id": "c1",
+      "citation_source": "Élégance calme, expertise lisible, aucune agressivité commerciale.",
+      "type_regle": "VOIX",
+      "niveau_contrainte": "HARD",
+      "texte_regle": "Adopter un discours d'élégance calme et d'expertise évidente, en proscrivant toute agressivité commerciale.",
+      "famille_code": null
+    },
+    {
+      "source_evidence_provider_id": "c1",
+      "citation_source": "Nature concrète : matière, lumière, saison, geste et usage.",
+      "type_regle": "VOIX",
+      "niveau_contrainte": "SOFT",
+      "texte_regle": "Ancrer le propos dans une nature concrète en évoquant la matière, la lumière, la saison, le geste et l'usage.",
+      "famille_code": null
+    },
+    {
+      "source_evidence_provider_id": "c1",
+      "citation_source": "Précision sans jargon inutile ; la compétence se sent dans la formulation.",
+      "type_regle": "VOIX",
+      "niveau_contrainte": "SOFT",
+      "texte_regle": "Rédiger avec précision tout en évitant l'utilisation d'un jargon inutile.",
+      "famille_code": null
+    },
+    {
+      "source_evidence_provider_id": "c1",
+      "citation_source": "objectif : présence sobre, architecturale, premium | lexique : matière, ligne, art de vivre extérieur.",
+      "type_regle": "TON",
+      "niveau_contrainte": "SOFT",
+      "texte_regle": "Transmettre une présence sobre, architecturale et premium à l'aide d'un lexique centré sur la matière, la ligne et l'art de vivre extérieur.",
+      "famille_code": "mobilier_jardin"
+    },
+    {
+      "source_evidence_provider_id": "c1",
+      "citation_source": "objectif : geste net, fatigue réduite, confiance d'usage | lexique : prise en main, équilibre, précision.",
+      "type_regle": "TON",
+      "niveau_contrainte": "SOFT",
+      "texte_regle": "Valoriser un geste net, une réduction de la fatigue et une confiance d'usage en utilisant un lexique lié à la prise en main, l'équilibre et la précision.",
+      "famille_code": "outils_jardin"
+    },
+    {
+      "source_evidence_provider_id": "c1",
+      "citation_source": "résiste aux intempéries à vie",
+      "type_regle": "PROMESSE_INTERDITE",
+      "niveau_contrainte": "HARD",
+      "texte_regle": "Ne jamais affirmer qu'un produit résiste aux intempéries à vie.",
+      "famille_code": null
+    },
+    {
+      "source_evidence_provider_id": "c1",
+      "citation_source": "sans entretien pour toujours",
+      "type_regle": "PROMESSE_INTERDITE",
+      "niveau_contrainte": "HARD",
+      "texte_regle": "Ne jamais promettre qu'un produit sera sans entretien pour toujours.",
+      "famille_code": null
+    },
+    {
+      "source_evidence_provider_id": "c1",
+      "citation_source": "incassable",
+      "type_regle": "PROMESSE_INTERDITE",
+      "niveau_contrainte": "HARD",
+      "texte_regle": "Ne jamais qualifier un produit d'incassable.",
+      "famille_code": null
+    },
+    {
+      "source_evidence_provider_id": "c1",
+      "citation_source": "parfait en toute circonstance",
+      "type_regle": "PROMESSE_INTERDITE",
+      "niveau_contrainte": "HARD",
+      "texte_regle": "Ne jamais affirmer qu'un produit est parfait en toute circonstance.",
+      "famille_code": null
+    },
+    {
+      "source_evidence_provider_id": "c1",
+      "citation_source": "Ne jamais inventer une performance ou une preuve absente des faits techniques.",
+      "type_regle": "PROMESSE_INTERDITE",
+      "niveau_contrainte": "HARD",
+      "texte_regle": "Il est formellement interdit d'inventer une performance ou une preuve qui ne figure pas dans les faits techniques.",
+      "famille_code": null
+    },
+    {
+      "source_evidence_provider_id": "c1",
+      "citation_source": "Ne jamais promettre un résultat absolu, permanent ou garanti à vie.",
+      "type_regle": "PROMESSE_INTERDITE",
+      "niveau_contrainte": "HARD",
+      "texte_regle": "Il est formellement interdit de promettre un résultat absolu, permanent ou garanti à vie.",
+      "famille_code": null
+    },
+    {
+      "source_evidence_provider_id": "c1",
+      "citation_source": "Ne jamais contredire matière, dimension, certification ou contrainte d'assemblage.",
+      "type_regle": "VOIX",
+      "niveau_contrainte": "HARD",
+      "texte_regle": "Le texte ne doit jamais entrer en contradiction avec la matière, les dimensions, les certifications ou les contraintes d'assemblage réelles du produit.",
+      "famille_code": null
+    },
+    {
+      "source_evidence_provider_id": "c1",
+      "citation_source": "Favoriser matière, stabilité, confort d'usage et scène de vie extérieure.",
+      "type_regle": "TON",
+      "niveau_contrainte": "SOFT",
+      "texte_regle": "Privilégier les éléments descriptifs liés à la matière, la stabilité, le confort d'usage et la scène de vie extérieure.",
+      "famille_code": "mobilier_jardin"
+    },
+    {
+      "source_evidence_provider_id": "c1",
+      "citation_source": "Favoriser équilibre, cadence sereine, précision et confort du geste.",
+      "type_regle": "TON",
+      "niveau_contrainte": "SOFT",
+      "texte_regle": "Privilégier les éléments descriptifs liés à l'équilibre, la cadence sereine, la précision et le confort du geste.",
+      "famille_code": "outils_jardin"
+    },
+    {
+      "source_evidence_provider_id": "c1",
+      "citation_source": "Préférer des verbes concrets et mesurés à tout superlatif facile.",
+      "type_regle": "VOIX",
+      "niveau_contrainte": "SOFT",
+      "texte_regle": "Employer des verbes d'action concrets et mesurés, en évitant le recours aux superlatifs de facilité.",
+      "famille_code": null
+    }
+ ]
+ }

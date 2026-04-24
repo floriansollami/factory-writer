@@ -54,7 +54,7 @@ Il faut une hiérarchie courte.
 | `WrongBucketError` | `ValidationError` | un event GCS arrive d’un bucket non attendu | non |
 | `NotAPdfError` | `ValidationError` | le fichier reçu n’est pas un PDF | non |
 | `InvalidGcsUriError` | `ValidationError` | URI `gs://` mal formée | non |
-| `InvalidStyleGuideSourceIdError` | `ValidationError` | `source_id` invalide | non |
+| `InvalidStyleGuideDocumentSourceIdError` | `ValidationError` | `document_source_id` invalide | non |
 | `StyleGuideAlreadyExistsError` | `ConflictError` | ingestion déjà en cours ou déjà faite | non |
 | `StyleGuideObjectNotFoundError` | `NotFoundError` | objet GCS introuvable | non |
 | `WorkflowStartError` | `TransientDependencyError` | impossible de démarrer un workflow Temporal | oui |
@@ -95,19 +95,21 @@ L’API doit renvoyer des réponses `application/problem+json`.
 | `TransientDependencyError` | `503` | erreur serveur temporaire, retry externe possible |
 | erreur inconnue | `500` | log `exception`, réponse générique |
 
-### Cas Eventarc
+### Cas upload admin guide de style
 
-Pour le webhook Eventarc :
+Pour les endpoints admin :
 
-- bucket non concerné : `200`
-- fichier non PDF : `200`
-- événement d’un autre `ce-type` : `200`
+- fichier non PDF : `400`
+- PDF vide ou trop volumineux : `400` ou `413`
+- source introuvable au démarrage : `404`
+- ingestion déjà terminée : `409`
 - panne DB / Temporal / GCS / config : `500` ou `503`
 
 Le point important :
 
-- `200` veut dire "event volontairement ignoré ou traité"
-- `500/503` veut dire "échec réel, retry infra souhaitable"
+- l'import du PDF ne démarre pas Temporal
+- seul `POST /api/style-guide/document-sources/{document_source_id}/start-ingestion` démarre le workflow
+- `500/503` veut dire "échec réel, retry externe possible"
 
 ---
 
@@ -180,15 +182,15 @@ Le pattern recommandé :
 
 ## 7. Matrice orientée projet
 
-### 7.1 API webhook style guide
+### 7.1 API admin style guide
 
 | Étape | Si ça échoue | Type d’erreur attendu | HTTP |
 | --- | --- | --- | --- |
-| lecture headers Eventarc | payload invalide | `ValidationError` | `400/422` |
-| `ce-type` non concerné | event ignoré | aucune erreur | `200` |
-| bucket non concerné | event ignoré | `WrongBucketError` mais absorbée au niveau route | `200` |
-| extension non PDF | event ignoré | `NotAPdfError` mais absorbée au niveau route | `200` |
-| création / relance source | conflit/idempotence | `StyleGuideAlreadyExistsError` | `409` ou `200` si politique idempotente |
+| upload fichier | fichier non PDF | `ValidationError` | `400` |
+| upload fichier | fichier trop volumineux | `ValidationError` | `413` |
+| création source | GCS ou DB indisponible | `TransientDependencyError` | `503` |
+| démarrage ingestion | source absente | `NotFoundError` | `404` |
+| démarrage ingestion | source déjà terminée | `ConflictError` | `409` |
 | démarrage Temporal | Temporal indisponible | `WorkflowStartError` | `503` |
 
 ### 7.2 Service d’ingestion style guide
@@ -196,7 +198,7 @@ Le pattern recommandé :
 | Étape | Erreur recommandée | Pourquoi |
 | --- | --- | --- |
 | URI GCS invalide | `InvalidGcsUriError` | contrat violé |
-| `source_id` invalide | `InvalidStyleGuideSourceIdError` | contrat violé |
+| `document_source_id` invalide | `InvalidStyleGuideDocumentSourceIdError` | contrat violé |
 | storage adapter absent | `ConfigurationError` | bug de wiring |
 | parser Document AI absent | `ConfigurationError` | bug de wiring |
 | objet GCS introuvable | `StyleGuideObjectNotFoundError` | état réel du fichier |
@@ -270,7 +272,7 @@ Ordre recommandé :
 2. remplacer les `ValueError` / `RuntimeError` métier dans les services
 3. ajouter un handler FastAPI global `problem+json`
 4. ajouter un mapper `FactoryWriterError -> ApplicationError` côté Temporal
-5. revoir les routes Eventarc pour distinguer clairement `ignored` vs `failed`
+5. revoir les routes admin pour distinguer clairement validation, conflit et dépendance indisponible
 6. revoir les retry policies des activities
 
 ---

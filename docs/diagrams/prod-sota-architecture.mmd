@@ -1,0 +1,181 @@
+%%{init: {"theme": "base", "themeVariables": {"fontFamily": "Arial", "primaryColor": "#F7F3EA", "primaryTextColor": "#1E293B", "primaryBorderColor": "#C9BFA8", "lineColor": "#64748B", "secondaryColor": "#EAF4F2", "tertiaryColor": "#F3F4F6"}}}%%
+flowchart TD
+  EXT["Sources prod<br/>PIM / PLM / Admin / GCS / BigQuery"] --> EDGE["Event Gateway<br/>Pub/Sub + API Commands"]
+  EDGE --> DEDUPE["Idempotency + dedupe<br/>product_id / object_generation / event_id"]
+  DEDUPE --> TOPICS["Domain events<br/>product.created | style-guide.uploaded | technical-source.finalized | commercial-snapshot.ready"]
+
+  subgraph POOLS["Worker pools Temporal recommandés"]
+    direction TD
+    WP1["#1 product-lifecycle-worker<br/>Task Queue: product-lifecycle"]
+    WP2["#2 style-guide-ingestion-worker<br/>Task Queue: style-guide-ingestion"]
+    WP3["#3 technical-dossier-worker<br/>Task Queue: technical-dossier-ingestion"]
+    WP4["#4 commercial-signals-worker<br/>Task Queue: commercial-signals-refresh"]
+    WP5["#5 product-sheet-generation-worker<br/>Task Queue: product-sheet-generation"]
+  end
+
+  subgraph DATA["Stores opérationnels"]
+    direction TD
+    GCS["GCS<br/>PDFs sources + outputs Document AI"]
+    PG["Postgres<br/>product, document_source, style_pack, technical_fact,<br/>commercial_signal_snapshot, product_context_snapshot, generation_job"]
+    BQ["BigQuery<br/>sales history + customer feedback"]
+  end
+
+  subgraph SG["1. Ingestion Style Guide"]
+    direction TD
+    TOPICS -- "style-guide.uploaded" --> QSG["Temporal Task Queue<br/>style-guide-ingestion"]
+    QSG --> WP2
+    WP2 --> SGWF["WF: StyleGuideIngestionWorkflow"]
+    SGWF --> SG1["Activity: créer document_source + ingestion_run"]
+    SG1 --> SG2["Activity: Document AI Layout Parser<br/>passages + evidence"]
+    SG2 --> SG3["Activity: LiteLLM structured extraction<br/>règles voix / ton / promesses interdites"]
+    SG3 --> SG4["Activity: validation déterministe"]
+    SG4 --> SG5["Activity: persister style_pack CANDIDAT<br/>règles A_VALIDER"]
+    SG5 --> SGWAIT["WAIT: revue éditoriale"]
+    SGWAIT --> SGDEC{"Décision finale ?"}
+    SGDEC -- "Activer" --> SGAPP["Activity: activer style_pack"]
+    SGDEC -- "Rejeter" --> SGREJ["Activity: archiver style_pack"]
+    SGAPP --> SGEVT["Signal style_pack_activated<br/>aux ProductLifecycleWorkflow en attente"]
+  end
+
+  subgraph COMM["2. Signaux commerciaux"]
+    direction TD
+    BQ --> CQ0["Scheduled BigQuery query / export<br/>ventes + retours clients"]
+    CQ0 --> QCOMM["Temporal Task Queue<br/>commercial-signals-refresh"]
+    QCOMM --> WP4
+    WP4 --> CWF["WF: CommercialSignalsRefreshWorkflow"]
+    CWF --> C1["Activity: lire snapshot BigQuery"]
+    C1 --> C2["Activity: normaliser signaux persuasifs<br/>non autoritaires"]
+    C2 --> C3["Activity: upsert commercial_signal_snapshot"]
+    C3 --> CEVT["Signal commercial_snapshot_available<br/>aux produits concernés"]
+  end
+
+  subgraph PL["3. Lifecycle Produit"]
+    direction TD
+    TOPICS -- "product.created" --> QP["Temporal Task Queue<br/>product-lifecycle"]
+    TOPICS -- "technical-source.finalized" --> QP
+    SGEVT --> QP
+    CEVT --> QP
+    QP --> WP1
+    WP1 --> PLWF["WF: ProductLifecycleWorkflow<br/>entity workflow id=product:{product_id}"]
+    PLWF --> P0["Update-With-Start / Signal-With-Start<br/>démarre ou réveille le produit"]
+    P0 --> P1["Activity: record_product_created<br/>ou record_technical_source_uploaded"]
+    P1 --> PWAIT["WAIT: product_created + technical_sources_uploaded"]
+    PWAIT --> PDEC{"Sources techniques prêtes ?"}
+    PDEC -- "Non" --> PWAIT
+    PDEC -- "Oui" --> TSTART["Start Child WF<br/>TechnicalDossierIngestionWorkflow"]
+  end
+
+  subgraph TECH["4. Ingestion Dossiers Techniques"]
+    direction TD
+    TSTART --> QTECH["Temporal Task Queue<br/>technical-dossier-ingestion"]
+    QTECH --> WP3
+    WP3 --> TWF["Child WF: TechnicalDossierIngestionWorkflow"]
+    TWF --> T1["Activity: prepare_technical_ingestion_run"]
+    T1 --> T2["Activity: Document AI Custom Classifier<br/>document_type + confidence"]
+    T2 --> T3["Activity: persist classification results<br/>processor_version + latency"]
+    T3 --> T4{"OCR dédié requis ?"}
+    T4 -- "Seulement si qualité insuffisante" --> T5["Activity: Enterprise OCR"]
+    T4 -- "Non" --> T6["Activity: Document AI Custom Extractor<br/>foundation model"]
+    T5 --> T6
+    T6 --> T7["Activity: persist technical_fact_candidate<br/>entities + evidence spans"]
+    T7 --> T8["Activity: validation déterministe<br/>dimensions, matériaux, certifications, contradictions"]
+    T8 --> T9{"Review bloquante ?"}
+    T9 -- "Oui" --> T10["PENDING_TECH_REVIEW"]
+    T10 --> T11["WAIT: signal review_case_resolved"]
+    T11 --> T8
+    T9 -- "Non" --> T12["Activity: promote technical_fact"]
+    T12 --> TREADY["TECHNICAL_FACTS_READY<br/>signal parent workflow"]
+  end
+
+  TREADY --> QP
+
+  subgraph READY["5. Readiness Gate et snapshot contexte"]
+    direction TD
+    PLWF --> R0["Activity: check_product_context_readiness"]
+    R0 --> R1["Load product"]
+    R1 --> R2["Load active style_pack"]
+    R2 --> R3["Select commercial_signal_snapshot"]
+    R3 --> R4["Load validated technical_facts"]
+    R4 --> RDEC{"Tout est prêt ?"}
+    RDEC -- "Non" --> RWAIT["WAITING_STYLE_PACK / WAITING_COMMERCIAL_SNAPSHOT / WAITING_TECH_FACTS<br/>réveil par signal + timer de secours"]
+    RWAIT --> R0
+    RDEC -- "Oui" --> R5["Activity: create_product_context_snapshot<br/>snapshot immutable"]
+    R5 --> R6["CONTEXT_READY"]
+  end
+
+  subgraph GEN["6. Génération fiche produit"]
+    direction TD
+    R6 --> QGEN["Temporal Task Queue<br/>product-sheet-generation"]
+    QGEN --> WP5
+    WP5 --> GWF["WF: ProductSheetGenerationWorkflow"]
+    GWF --> G1["Activity: load_product_context_snapshot"]
+    G1 --> G2["Activity: render canonical prompt snapshot<br/>variables + style + facts + commercial signals"]
+    G2 --> G3["Activity: LiteLLM structured output<br/>draft fiche produit"]
+    G3 --> G4["Activity: deterministic guardrails<br/>no technical hallucination"]
+    G4 --> GDEC{"Review humaine requise ?"}
+    GDEC -- "Oui" --> GWAIT["WAIT: copy_review_resolved"]
+    GWAIT --> G4
+    GDEC -- "Non" --> G5["Activity: publish candidate<br/>PIM / CMS / export"]
+    G5 --> GPUB["PUBLISHED_CONTENT"]
+  end
+
+  subgraph REVIEW["7. Revue humaine"]
+    direction TD
+    ADMIN["Admin Review UI"] --> API["Review API"]
+    API --> SGWAIT
+    API --> T10
+    API --> GWAIT
+  end
+
+  subgraph OPS["8. Ops, SLA et backpressure"]
+    direction TD
+    TEMP["Temporal Cloud<br/>history, visibility, retries"]
+    LIMITS["Par task queue<br/>max concurrency, rate limits, retry policy"]
+    SLA["SLA target < 2 min<br/>technical <= 60s, generation <= 45s, marge ops"]
+    OBS["OpenTelemetry + logs corrélés<br/>workflow_id, run_id, provider_request_ref"]
+    DLQ["Pub/Sub DLQ<br/>événements invalides ou non routables"]
+  end
+
+  SG1 --> PG
+  SG2 --> GCS
+  SGAPP --> PG
+  SGREJ --> PG
+  C3 --> PG
+  T1 --> PG
+  T2 --> GCS
+  T3 --> PG
+  T6 --> GCS
+  T7 --> PG
+  T12 --> PG
+  R5 --> PG
+  G1 --> PG
+  G5 --> PG
+  LIMITS --> QSG
+  LIMITS --> QP
+  LIMITS --> QTECH
+  LIMITS --> QCOMM
+  LIMITS --> QGEN
+  TEMP --> QSG
+  TEMP --> QP
+  TEMP --> QTECH
+  TEMP --> QCOMM
+  TEMP --> QGEN
+  TOPICS -. "events rejetés" .-> DLQ
+
+  classDef workflow fill:#EAF4F2,stroke:#0F766E,stroke-width:2px,color:#134E4A;
+  classDef activity fill:#FFF7ED,stroke:#C2410C,stroke-width:1.5px,color:#7C2D12;
+  classDef wait fill:#F1F5F9,stroke:#475569,stroke-width:1.5px,color:#0F172A;
+  classDef storage fill:#EEF2FF,stroke:#4338CA,stroke-width:1.5px,color:#312E81;
+  classDef decision fill:#FEF9C3,stroke:#A16207,stroke-width:1.5px,color:#713F12;
+  classDef queue fill:#ECFEFF,stroke:#0891B2,stroke-width:1.5px,color:#164E63;
+  classDef worker fill:#F5F3FF,stroke:#7C3AED,stroke-width:1.5px,color:#4C1D95;
+  classDef event fill:#F8FAFC,stroke:#64748B,stroke-width:1.5px,color:#1E293B;
+
+  class SGWF,CWF,PLWF,TWF,GWF workflow;
+  class SG1,SG2,SG3,SG4,SG5,SGAPP,SGREJ,CQ0,C1,C2,C3,P0,P1,T1,T2,T3,T5,T6,T7,T8,T12,R0,R1,R2,R3,R4,R5,G1,G2,G3,G4,G5 activity;
+  class SGWAIT,PWAIT,T10,T11,RWAIT,GWAIT wait;
+  class GCS,PG,BQ,DLQ storage;
+  class SGDEC,PDEC,T4,T9,RDEC,GDEC decision;
+  class QSG,QCOMM,QP,QTECH,QGEN queue;
+  class WP1,WP2,WP3,WP4,WP5 worker;
+  class EXT,EDGE,DEDUPE,TOPICS,SGEVT,CEVT,TREADY,TSTART,R6,GPUB,ADMIN,API,TEMP,LIMITS,SLA,OBS event;

@@ -1,0 +1,97 @@
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Sophie
+    participant FE as Frontend React
+    participant API as FastAPI
+    participant DS as DocumentSource Router
+    participant IR as Ingestion Router
+    participant IS as StyleGuideIngestionService
+    participant REPO as StyleGuideRepository
+    participant DB as PostgreSQL
+    participant GCS as StorageClient / GCS
+    participant TS as Temporal Starter
+    participant WF as Temporal Workflow
+    participant ACT as Temporal Activities
+    participant DAI as Document AI
+    participant LLM as Draft Pack Generator
+
+    Sophie->>FE: sélectionne un PDF
+    FE->>API: POST /api/style-guide/upload
+    API->>DS: route upload
+    DS->>IS: upload_document_source_pdf(file)
+    IS->>GCS: upload_document_source_pdf(document_source_id, file)
+    GCS-->>IS: storage_uri, generation, metageneration
+    IS->>REPO: create_document_source(...)
+    REPO->>DB: INSERT document_collection(EN_ATTENTE)
+    REPO->>DB: INSERT document_source(EN_ATTENTE)
+    DB-->>REPO: ok
+    REPO-->>IS: document_source snapshot
+    IS-->>DS: upload result
+    DS-->>FE: 201 Created
+
+    Sophie->>FE: lance l’ingestion
+    FE->>API: POST /api/style-guide/document-sources/{id}/start-ingestion
+    API->>IR: route start-ingestion
+    IR->>IS: start_ingestion(document_source_id)
+    IS->>REPO: prepare_ingestion_start(document_source_id)
+    REPO->>DB: lock source + latest run
+    REPO->>DB: INSERT document_ingestion_run(EN_COURS, UPLOAD)
+    REPO->>DB: UPDATE document_source(EN_COURS)
+    REPO->>DB: UPDATE document_collection(EN_COURS)
+    DB-->>REPO: ok
+    REPO-->>IS: run snapshot
+    IS->>TS: start_style_guide_ingestion(payload)
+    TS-->>IS: workflow_id
+    IS-->>IR: ingestion result
+    IR-->>FE: 202 Accepted
+
+    TS->>WF: démarre workflow
+    WF->>ACT: start_docai_job(payload)
+    ACT->>IS: start_document_layout_parse(payload)
+    IS->>DAI: start_document_layout_parse(...)
+    DAI-->>IS: operation_id, output_uri
+    IS->>REPO: record_layout_parse_result(...)
+    REPO->>DB: UPDATE run current_step=LAYOUT_PARSE
+    DB-->>REPO: ok
+    IS-->>ACT: job started
+    ACT-->>WF: job started
+
+    loop polling Document AI
+        WF->>ACT: check_docai_job(job)
+        ACT->>IS: check_document_layout_parse(job)
+        IS->>DAI: check_document_layout_parse(...)
+        alt pas prêt
+            DAI-->>IS: pending
+            IS-->>ACT: None
+            ACT-->>WF: None
+        else prêt
+            DAI-->>IS: parse result
+            IS->>REPO: record_layout_parse_result(...)
+            REPO->>DB: UPDATE extraction_steps_json SUCCEEDED
+            DB-->>REPO: ok
+            IS-->>ACT: parse result
+            ACT-->>WF: parse result
+        end
+    end
+
+    WF->>ACT: generate_draft_pack(parse_result)
+    ACT->>IS: generate_draft_pack(parse_result)
+    IS->>REPO: update run EN_COURS / LLM_DRAFT_PACK
+    REPO->>DB: UPDATE document_ingestion_run
+    DB-->>REPO: ok
+    IS->>LLM: generate_draft_pack(...)
+    LLM-->>IS: draft style pack
+    IS->>REPO: replace_draft_style_pack(...)
+    REPO->>DB: INSERT style_pack(BROUILLON)
+    REPO->>DB: INSERT style_rule(A_VALIDER)
+    REPO->>DB: UPDATE run A_VALIDER / HUMAN_REVIEW
+    REPO->>DB: UPDATE collection A_VALIDER
+    REPO->>DB: UPDATE source TERMINE
+    DB-->>REPO: ok
+    REPO-->>IS: draft_style_pack_id
+    IS-->>ACT: draft result
+    ACT-->>WF: draft result
+
+    WF->>WF: state.status = PENDING_EDITOR_REVIEW
+```

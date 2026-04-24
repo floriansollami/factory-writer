@@ -1,0 +1,209 @@
+{
+  "stats_by_category": {
+    "detected_language_confidence": {
+      "avg": 0.9894169338896308,
+      "count": 569,
+      "max": 1.0,
+      "min": 0.0021285939,
+      "samples": [
+        {
+          "path": "$.pages[0].detectedLanguages[0].confidence",
+          "value": 0.8776477
+        },
+        {
+          "path": "$.pages[0].detectedLanguages[1].confidence",
+          "value": 0.076082744
+        },
+        {
+          "path": "$.pages[0].detectedLanguages[2].confidence",
+          "value": 0.010069849
+        },
+        {
+          "path": "$.pages[0].detectedLanguages[3].confidence",
+          "value": 0.0063713747
+        },
+        {
+          "path": "$.pages[0].detectedLanguages[4].confidence",
+          "value": 0.0037968464
+        },
+        {
+          "path": "$.pages[0].detectedLanguages[5].confidence",
+          "value": 0.0021382752
+        },
+        {
+          "path": "$.pages[0].detectedLanguages[6].confidence",
+          "value": 0.0021285939
+        },
+        {
+          "path": "$.pages[0].lines[0].detectedLanguages[0].confidence",
+          "value": 1.0
+        },
+        {
+          "path": "$.pages[0].lines[3].detectedLanguages[0].confidence",
+          "value": 1.0
+        },
+        {
+          "path": "$.pages[0].lines[4].detectedLanguages[0].confidence",
+          "value": 1.0
+        }
+      ]
+    },
+    "entity_confidence": {
+      "avg": 0.7656279075,
+      "count": 4,
+      "max": 1.0,
+      "min": 0.5,
+      "samples": [
+        {
+          "path": "$.entities[0].confidence",
+          "value": 0.98448539
+        },
+        {
+          "path": "$.entities[0].properties[0].confidence",
+          "value": 1.0
+        },
+        {
+          "path": "$.entities[0].properties[1].confidence",
+          "value": 0.57802624
+        },
+        {
+          "path": "$.entities[0].properties[2].confidence",
+          "value": 0.5
+        }
+      ]
+    },
+    "image_quality_defect_confidence": {
+      "avg": 0.6926754133333333,
+      "count": 3,
+      "max": 1.0,
+      "min": 0.5,
+      "samples": [
+        {
+          "path": "$.pages[0].imageQualityScores.detectedDefects[0].confidence",
+          "value": 1.0
+        },
+        {
+          "path": "$.pages[0].imageQualityScores.detectedDefects[1].confidence",
+          "value": 0.57802624
+        },
+        {
+          "path": "$.pages[0].imageQualityScores.detectedDefects[2].confidence",
+          "value": 0.5
+        }
+      ]
+    },
+    "image_quality_score": {
+      "avg": 0.98448539,
+      "count": 1,
+      "max": 0.98448539,
+      "min": 0.98448539,
+      "samples": [
+        {
+          "path": "$.pages[0].imageQualityScores.qualityScore",
+          "value": 0.98448539
+        }
+      ]
+    },
+    "page_layout_confidence": {
+      "avg": 0.9796889007353418,
+      "count": 3087,
+      "max": 0.99934512,
+      "min": 0.34063911,
+      "samples": [
+        {
+          "path": "$.pages[0].blocks[0].layout.confidence",
+          "value": 0.98222935
+        },
+        {
+          "path": "$.pages[0].blocks[1].layout.confidence",
+          "value": 0.95523268
+        },
+        {
+          "path": "$.pages[0].blocks[2].layout.confidence",
+          "value": 0.98983842
+        },
+        {
+          "path": "$.pages[0].blocks[3].layout.confidence",
+          "value": 0.97996849
+        },
+        {
+          "path": "$.pages[0].blocks[4].layout.confidence",
+          "value": 0.97677809
+        },
+        {
+          "path": "$.pages[0].blocks[5].layout.confidence",
+          "value": 0.98031914
+        },
+        {
+          "path": "$.pages[0].blocks[6].layout.confidence",
+          "value": 0.98988718
+        },
+        {
+          "path": "$.pages[0].blocks[7].layout.confidence",
+          "value": 0.98890454
+        },
+        {
+          "path": "$.pages[0].blocks[8].layout.confidence",
+          "value": 0.98981827
+        },
+        {
+          "path": "$.pages[0].blocks[9].layout.confidence",
+          "value": 0.9890576
+        }
+      ]
+    }
+  },
+  "summary": {
+    "categories": [
+      "detected_language_confidence",
+      "entity_confidence",
+      "image_quality_defect_confidence",
+      "image_quality_score",
+      "page_layout_confidence"
+    ],
+    "documents": [
+      {
+        "chunk_count": 0,
+        "chunk_has_native_confidence": false,
+        "contains_facts_techniques": true,
+        "contains_faits_techniques": false,
+        "document_layout_block_count": 0,
+        "document_layout_block_has_native_confidence": false,
+        "document_layout_has_blocks": false,
+        "entity_count": 1,
+        "file": "/Users/floriansollami/Documents/GitHub/factory-writer/docs/brand_style_extraction/document_ai_ocr_raw_dump/AXOLOTL_STYLE_GUIDE_V4-0.json",
+        "form_field_count": 0,
+        "image_quality_defects": [
+          {
+            "confidence": 1,
+            "type": "quality/defect_document_cutoff"
+          },
+          {
+            "confidence": 0.57802624,
+            "type": "quality/defect_glare"
+          },
+          {
+            "confidence": 0.5,
+            "type": "quality/defect_text_cutoff"
+          }
+        ],
+        "image_quality_scores": [
+          0.98448539
+        ],
+        "line_bounding_poly_count": 108,
+        "line_count": 108,
+        "page_count": 1,
+        "paragraph_bounding_poly_count": 78,
+        "paragraph_count": 78,
+        "symbol_count": 2365,
+        "table_count": 0,
+        "text_length": 2727,
+        "token_bounding_poly_count": 472,
+        "token_count": 472
+      }
+    ],
+    "interpretation": "Les chunks Document AI et les DocumentLayoutBlock n'ont pas de confidence native dans le schema SDK. Les confidences, quand elles existent, viennent surtout des objets Page.Layout, Entity, PageAnchor.PageRef, DetectedLanguage et ImageQualityScores.",
+    "total_confidence_values": 3663,
+    "total_quality_score_values": 1
+  }
+}

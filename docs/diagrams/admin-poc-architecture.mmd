@@ -1,0 +1,93 @@
+%%{init: {"theme": "base", "themeVariables": {"fontFamily": "Arial", "primaryColor": "#F7F3EA", "primaryTextColor": "#1F1A14", "primaryBorderColor": "#C9BFA8", "lineColor": "#6F6558", "secondaryColor": "#F7F3EA", "tertiaryColor": "#F3F0E8"}}}%%
+flowchart TD
+  A["Interface admin"] --> B["API backend"]
+
+  subgraph SG["1. Guide de style"]
+    direction TD
+    B --> SG0["Importer le PDF du guide"]
+    SG0 --> SG1["Workflow d'analyse du guide"]
+    SG1 --> SG2["Préparer la source et le run"]
+    SG2 --> SG3["Lire le PDF et isoler les passages utiles"]
+    SG3 --> SG4["Extraire les règles candidates"]
+    SG4 --> SG5["Contrôler le JSON et les preuves"]
+    SG5 --> SG6["Créer le pack candidat à relire"]
+    SG6 --> SG7["Attendre la revue éditoriale"]
+    SG7 --> SG8{"Décision sur le pack"}
+    SG8 -- "Activer" --> SG9["Activer le pack"]
+    SG8 -- "Rejeter" --> SG10["Archiver le pack"]
+    SG9 --> SG11["Pack de style actif"]
+  end
+
+  subgraph PROD["2. Produit"]
+    direction TD
+    B --> P0["Créer l'entrée produit"]
+    P0 --> P1["Démarrer le cycle de vie produit"]
+    P1 --> P2["Workflow cycle de vie produit"]
+    P2 --> P3["Charger le produit canonique"]
+    P3 --> P4["Attendre les PDFs techniques"]
+  end
+
+  subgraph TECH_UPLOAD["3. Ajout des PDFs techniques"]
+    direction TD
+    B --> T0["Ajouter les PDFs techniques"]
+    T0 --> T1["Stocker les fichiers"]
+    T1 --> T2["Créer le dossier technique"]
+    T2 --> T3["Référencer chaque PDF"]
+    T3 --> T4["Réveiller le cycle de vie produit"]
+  end
+
+  T4 --> P4
+
+  subgraph TECH_WF["4. Analyse du dossier technique"]
+    direction TD
+    P4 --> T5["Sous-workflow d'analyse technique"]
+    T5 --> T6["Préparer le run d'analyse"]
+    T6 --> T7["Classer chaque document"]
+    T7 --> T8["Enregistrer le type détecté"]
+    T8 --> T12["Extraire les faits techniques"]
+    T12 --> T13["Enregistrer les faits et leurs preuves"]
+    T13 --> T14["Valider dimensions, matériaux et certifications"]
+    T14 --> T15{"Blocage à relire ?"}
+    T15 -- "Oui" --> T16["Attendre une correction humaine"]
+    T16 --> T17["Correction reçue"]
+    T17 --> T14
+    T15 -- "Non" --> T18["Publier les faits validés"]
+    T18 --> T19["Faits techniques prêts"]
+  end
+
+  subgraph COMM["5. Signaux commerciaux de démo"]
+    direction TD
+    B --> C0["Précharger ventes et retours clients"]
+    C0 --> C1["Seed via migration"]
+    C1 --> C2["Snapshot commercial disponible"]
+  end
+
+  subgraph READY["6. Contexte prêt pour génération"]
+    direction TD
+    T19 --> R0["Contrôle final du contexte produit"]
+    SG11 --> R0
+    C2 --> R0
+    P3 --> R0
+    R0 --> R1["Vérifier le produit"]
+    R1 --> R2["Vérifier le pack de style actif"]
+    R2 --> R3["Choisir le snapshot commercial"]
+    R3 --> R4["Charger les faits techniques validés"]
+    R4 --> R5{"Contexte complet ?"}
+    R5 -- "Non" --> R6["Attendre l'élément manquant"]
+    R6 --> R0
+    R5 -- "Oui" --> R7["Figer le contexte produit"]
+    R7 --> R8["Contexte prêt"]
+    R8 -. "future" .-> R9["Génération de fiche produit"]
+  end
+
+  classDef workflow fill:#EAF4F2,stroke:#0F766E,stroke-width:2px,color:#134E4A;
+  classDef activity fill:#FEE2E2,stroke:#B91C1C,stroke-width:1.5px,color:#7F1D1D;
+  classDef wait fill:#F4F1EA,stroke:#756B5D,stroke-width:1.5px,color:#2D241C;
+  classDef storage fill:#F7F3EA,stroke:#B8AA94,stroke-width:1.5px,color:#3A3026;
+  classDef decision fill:#FEF3C7,stroke:#B45309,stroke-width:1.5px,color:#7C2D12;
+
+  class SG1,P2,T5,R0,R9 workflow;
+  class SG2,SG3,SG4,SG5,SG6,SG9,SG10,P3,T6,T7,T8,T12,T13,T14,T18,R1,R2,R3,R4,R7 activity;
+  class SG7,P4,T16,T17,R6 wait;
+  class C2,T1,T2,T3 storage;
+  class SG8,T15,R5 decision;

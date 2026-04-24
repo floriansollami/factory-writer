@@ -1,0 +1,35 @@
+{
+  "stats_by_category": {},
+  "summary": {
+    "categories": [],
+    "documents": [
+      {
+        "chunk_count": 1,
+        "chunk_has_native_confidence": false,
+        "contains_facts_techniques": false,
+        "contains_faits_techniques": true,
+        "document_layout_block_count": 67,
+        "document_layout_block_has_native_confidence": false,
+        "document_layout_has_blocks": true,
+        "entity_count": 0,
+        "file": "/Users/floriansollami/Documents/GitHub/factory-writer/docs/brand_style_extraction/document_ai_raw_dump/AXOLOTL_STYLE_GUIDE_V4-0.json",
+        "form_field_count": 0,
+        "image_quality_defects": [],
+        "image_quality_scores": [],
+        "line_bounding_poly_count": 0,
+        "line_count": 0,
+        "page_count": 0,
+        "paragraph_bounding_poly_count": 0,
+        "paragraph_count": 0,
+        "symbol_count": 0,
+        "table_count": 0,
+        "text_length": 0,
+        "token_bounding_poly_count": 0,
+        "token_count": 0
+      }
+    ],
+    "interpretation": "Les chunks Document AI et les DocumentLayoutBlock n'ont pas de confidence native dans le schema SDK. Les confidences, quand elles existent, viennent surtout des objets Page.Layout, Entity, PageAnchor.PageRef, DetectedLanguage et ImageQualityScores.",
+    "total_confidence_values": 0,
+    "total_quality_score_values": 0
+  }
+}

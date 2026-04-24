@@ -1,0 +1,21 @@
+erDiagram
+    TAXONOMIE_PRODUIT ||--o{ PRODUCT : "classifies"
+    PRODUCT ||--o{ DOCUMENT_COLLECTION : "has technical dossiers"
+
+    DOCUMENT_COLLECTION ||--o{ DOCUMENT_SOURCE : "contains files"
+    DOCUMENT_COLLECTION ||--o{ DOCUMENT_INGESTION_RUN : "has runs"
+
+    DOCUMENT_INGESTION_RUN ||--o{ STYLE_PACK : "generates"
+    STYLE_PACK ||--o{ STYLE_RULE : "contains"
+    TAXONOMIE_PRODUIT ||--o{ STYLE_RULE : "scopes"
+
+    DOCUMENT_INGESTION_RUN ||--o{ TECHNICAL_FACT_CANDIDATE : "extracts"
+    DOCUMENT_SOURCE ||--o{ TECHNICAL_FACT_CANDIDATE : "source file"
+
+    DOCUMENT_INGESTION_RUN ||--o{ TECHNICAL_REVIEW_CASE : "has exceptions"
+    DOCUMENT_SOURCE ||--o{ TECHNICAL_REVIEW_CASE : "may concern file"
+    TECHNICAL_FACT_CANDIDATE ||--o{ TECHNICAL_REVIEW_CASE : "may trigger"
+
+    TECHNICAL_FACT_CANDIDATE ||--o| TECHNICAL_FACT : "promotes"
+    TECHNICAL_REVIEW_CASE ||--o| TECHNICAL_FACT : "may resolve into"
+    PRODUCT ||--o{ TECHNICAL_FACT : "has validated facts"

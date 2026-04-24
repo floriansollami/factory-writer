@@ -8,13 +8,13 @@ Ce setup local est celui recommandé pour le POC :
 - `worker Temporal` sur le host
 - `Cloud Storage` réel
 - `Document AI` réel
-- simulation de l'événement `Eventarc` via `curl`
+- déclenchement explicite de l'ingestion via l'API locale
 
 L'objectif est simple :
 
-1. uploader un vrai PDF dans le bucket GCS
-2. rejouer vers l'API locale la requête HTTP qu'Eventarc enverrait
-3. laisser l'API locale démarrer le workflow dans Temporal local
+1. uploader un vrai PDF via l'API locale
+2. laisser l'API stocker le PDF dans Cloud Storage
+3. lancer explicitement l'ingestion depuis l'API locale
 4. laisser le worker local exécuter les activities
 5. observer l'exécution dans les logs locaux et dans Temporal UI
 
@@ -119,63 +119,28 @@ make worker-style
 
 Le worker local poll la task queue `style-guide-ingestion` sur le Temporal local.
 
-## 7. Déclencher le flow complet
+## 7. Déclencher le flow depuis l'admin
 
-Dans un troisième terminal :
-
-```bash
-make demo-style-upload PDF=./chemin/vers/guide-style.pdf
-```
-
-Ce target fait deux choses :
-
-1. upload réel du PDF dans le bucket GCS
-2. appel HTTP local vers :
-
-```text
-POST /webhooks/eventarc/style-guide
-```
-
-avec :
-
-- `ce-type: google.cloud.storage.object.v1.finalized`
-- le payload JSON minimal attendu par l'API
-
-### Variante si le PDF est déjà présent dans GCS
-
-Si le PDF a déjà été uploadé, il n'est pas nécessaire de le recopier. Tu peux simplement rejouer l'événement local :
+Ouvrez l'admin local, importez le PDF, puis lancez l'analyse depuis l'écran de vérification.
 
 ```bash
-make demo-style-replay OBJECT=AXOLOTL_STYLE_GUIDE_V4.pdf
+make frontend-real
 ```
 
-Ce mode ne dépend pas de `gcloud storage`. Il se contente d'envoyer à l'API locale le payload JSON minimal d'un événement `google.cloud.storage.object.v1.finalized`, ce qui est cohérent avec la doc Eventarc officielle pour les événements Cloud Storage vers Cloud Run.
-
-Dans ton cas actuel, l'objet présent dans le bucket est :
-
-```text
-gs://factory-writer-poc-1776097019-brand-styles/AXOLOTL_STYLE_GUIDE_V4.pdf
-```
-
-Donc le run local attendu est :
-
-```bash
-make demo-style-replay OBJECT=AXOLOTL_STYLE_GUIDE_V4.pdf
-```
+Ce mode reflète le flow admin POC : l'import du PDF et le démarrage de l'ingestion restent deux actions explicites.
 
 ## 8. Ce que tu dois observer
 
 ### Logs API
 
-Tu dois voir le webhook traité puis le workflow démarré.
+Tu dois voir l'upload traité puis le workflow démarré après l'appel `start-ingestion`.
 
 ### Logs worker
 
 Tu dois voir les étapes :
 
-- `mark_source_in_progress`
-- `parse_layout`
-- `persist_fragments`
+- `start_docai_job`
+- `check_docai_job`
 - `generate_draft_pack`
 
 ### Temporal UI
@@ -211,7 +176,7 @@ On fait :
 
 - `Cloud Storage réel`
 - `Document AI réel`
-- `rejeu HTTP local`
+- `API locale explicite`
 
 C'est le bon compromis :
 

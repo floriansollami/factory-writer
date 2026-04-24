@@ -1,0 +1,12 @@
+{
+  "done": false,
+  "metadata": {
+    "@type": "type.googleapis.com/google.cloud.documentai.v1.BatchProcessMetadata",
+    "create_time": "2026-04-20T11:00:05.719003Z",
+    "individual_process_statuses": [],
+    "state": "RUNNING",
+    "state_message": "",
+    "update_time": "2026-04-20T11:00:05.719003Z"
+  },
+  "name": "projects/623736074911/locations/eu/operations/17104014470609267930"
+}

@@ -1002,7 +1002,7 @@ Parce que :
 - `normaliser_facts`
 - `valider_facts_critiques`
 - `charger_snapshot_signaux`
-- `charger_pack_style`
+- `charger_style_pack`
 - `charger_generation_recipe_active`
 - `charger_prompts_langfuse`
 - `construire_context_snapshot`
