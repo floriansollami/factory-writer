@@ -10,14 +10,6 @@ from .prompt_registry import PreparedPrompt
 
 
 @dataclass(frozen=True)
-class StyleGuideFragmentSnapshot:
-    id: uuid.UUID
-    source_id: uuid.UUID
-    index_fragment: int
-    contenu: str
-
-
-@dataclass(frozen=True)
 class StyleGuideTaxonomySnapshot:
     id: uuid.UUID
     famille_code: str

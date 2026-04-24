@@ -1,6 +1,8 @@
 import hashlib
+import json
 from typing import Any
 
+import structlog
 from pydantic import ValidationError
 
 from factory_writer.application.ports import LLMCompletionRequest, LLMGatewayPort, LLMMessage
@@ -12,6 +14,8 @@ from factory_writer.application.ports.style_guide_ingestion import (
     StyleGuideDraftPackGenerationResult,
 )
 from factory_writer.core.config import Settings
+
+logger = structlog.get_logger(__name__)
 
 
 class LiteLLMStyleGuideDraftPackGenerator:
@@ -38,6 +42,7 @@ class LiteLLMStyleGuideDraftPackGenerator:
                 max_tokens=llm_config.max_tokens,
                 timeout_seconds=self._settings.llm.style_guide_timeout_seconds,
                 response_format=response_format,
+                reasoning_level=llm_config.reasoning_level,
                 metadata={
                     "prompt_registry_provider": prompt.registry_provider,
                     "prompt_name": prompt.name,
@@ -45,6 +50,10 @@ class LiteLLMStyleGuideDraftPackGenerator:
                     "response_format": response_format_name,
                 },
             )
+        )
+
+        logger.info(
+            f"Style guide | Draft pack | réponse LiteLLM JSON\n{_format_json_for_log(response.content)}"
         )
 
         return StyleGuideDraftPackGenerationResult(
@@ -91,3 +100,12 @@ def _response_format_name(response_format: dict[str, Any]) -> str:
         raise ValueError("response_format json_schema.name invalide")
 
     return name
+
+
+def _format_json_for_log(content: str) -> str:
+    try:
+        parsed = json.loads(content)
+    except json.JSONDecodeError:
+        return content
+
+    return json.dumps(parsed, ensure_ascii=False, indent=2)

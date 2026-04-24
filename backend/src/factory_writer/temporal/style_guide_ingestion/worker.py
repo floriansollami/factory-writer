@@ -1,15 +1,22 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 
+import structlog
 from temporalio.worker import Worker
+from temporalio.worker.workflow_sandbox import SandboxedWorkflowRunner, SandboxRestrictions
 
 from factory_writer.application.ports.style_guide_ingestion import StyleGuideIngestionConfigPort
+from factory_writer.application.services.product_technical_ingestion_service import (
+    ProductTechnicalIngestionService,
+)
 from factory_writer.application.services.style_guide_ingestion_service import (
     StyleGuideIngestionService,
 )
 from factory_writer.core.config import get_settings
+from factory_writer.infrastructure.database.repositories.product_repository import (
+    ProductRepository,
+)
 from factory_writer.infrastructure.database.repositories.style_guide_repository import (
     StyleGuideRepository,
 )
@@ -27,10 +34,19 @@ from factory_writer.temporal.common.worker_runtime import (
     build_deployment_config,
     build_worker_identity,
 )
+from factory_writer.temporal.sku_lifecycle.starter import TemporalProductLifecycleWorkflowStarter
 from factory_writer.temporal.style_guide_ingestion.activities import StyleGuideActivities
 from factory_writer.temporal.style_guide_ingestion.workflow import StyleGuideIngestionWorkflow
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
+
+_WORKFLOW_SANDBOX_RESTRICTIONS = SandboxRestrictions.default.with_passthrough_modules(
+    "pydantic",
+    "pydantic_core",
+    "factory_writer.application.ports.style_guide_ingestion",
+    "factory_writer.temporal.common.contracts",
+    "factory_writer.temporal.style_guide_ingestion.contracts",
+)
 
 
 async def main() -> None:
@@ -52,29 +68,41 @@ async def main() -> None:
         prompt_registry=LocalStyleGuidePromptRegistry(),
         draft_pack_generator=LiteLLMStyleGuideDraftPackGenerator(settings, llm_gateway),
     )
-    activities = StyleGuideActivities(service)
+    product_notification_service = ProductTechnicalIngestionService(
+        settings=settings,
+        repository=ProductRepository(session_factory),
+        workflow_starter=TemporalProductLifecycleWorkflowStarter(client),
+    )
+    activities = StyleGuideActivities(service, product_notification_service)
 
     worker = Worker(
         client,
         task_queue=TaskQueue.STYLE_GUIDE_INGESTION.value,
         workflows=[StyleGuideIngestionWorkflow],
         activities=[
-            activities.mark_source_in_progress,
-            activities.mark_source_failed,
+            activities.mark_ingestion_failed,
             activities.start_docai_job,
             activities.check_docai_job,
-            activities.persist_fragments,
             activities.generate_draft_pack,
-            activities.promote_pack,
+            activities.finalize_style_pack_approval,
+            activities.notify_style_pack_activated,
+            activities.finalize_style_pack_rejection,
         ],
         build_id=settings.temporal.build_id,
         use_worker_versioning=deployment_config is not None,
         deployment_config=deployment_config,
         identity=build_worker_identity("style-guide-ingestion"),
         interceptors=[DomainErrorInterceptor()],
+        workflow_runner=SandboxedWorkflowRunner(
+            restrictions=_WORKFLOW_SANDBOX_RESTRICTIONS,
+        ),
     )
 
-    logger.info("Temporal worker started", extra={"worker": "style-guide-ingestion"})
+    logger.info(
+        "temporal.worker.started",
+        worker="style-guide-ingestion",
+        task_queue=TaskQueue.STYLE_GUIDE_INGESTION.value,
+    )
     await worker.run()
 
 

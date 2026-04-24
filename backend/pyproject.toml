@@ -13,6 +13,7 @@ dependencies = [
     "uvicorn[standard]",
     "pydantic",
     "pydantic-settings",
+    "python-multipart",
     "sqlalchemy",
     "alembic",
     "psycopg[binary,pool]",
@@ -25,6 +26,7 @@ dependencies = [
     "asgi-correlation-id",
     "google-cloud-documentai-toolbox>=0.15.2",
     "mstache>=0.3.0",
+    "pymupdf>=1.26.0",
 ]
 
 [project.optional-dependencies]
@@ -32,6 +34,9 @@ dev = [
     "ruff",
     "mypy",
     "pytest",
+    "httpx",
+    "asgi-lifespan",
+    "testcontainers[postgres]",
 ]
 
 [tool.ruff]

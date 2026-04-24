@@ -4,6 +4,8 @@ from typing import Any, Literal, Protocol
 
 import mstache
 
+from factory_writer.application.ports.reasoning import ReasoningLevel
+
 PromptRole = Literal["system", "user"]
 
 
@@ -24,6 +26,7 @@ class PromptLLMConfig:
     model: str
     temperature: float
     max_tokens: int
+    reasoning_level: ReasoningLevel | None
     response_format: Mapping[str, Any]
 
 

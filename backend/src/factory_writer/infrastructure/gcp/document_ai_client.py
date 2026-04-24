@@ -1,15 +1,26 @@
 import asyncio
+from time import perf_counter
+from typing import Any, cast
 
 from google.api_core.client_options import ClientOptions
 from google.cloud import documentai_v1 as documentai
 from google.cloud.documentai_toolbox import document as documentai_toolbox
+from google.protobuf.json_format import MessageToDict
+from google.protobuf.message import Message
 
+from factory_writer.application.ports.product_technical_ingestion import (
+    TechnicalDocumentClassificationResult,
+    TechnicalDocumentEntity,
+    TechnicalDocumentExtractionResult,
+)
 from factory_writer.application.ports.style_guide_ingestion import (
     DocumentParserProcessResult,
-    StyleGuideFragmentCandidate,
+    StyleGuideChunkCandidate,
 )
 from factory_writer.core.config import Settings
 from factory_writer.infrastructure.gcp.gcs_uri import parse_gcs_uri
+
+_STYLE_GUIDE_CHUNK_SIZE_TOKENS = 1000
 
 
 class DocumentAIClient:
@@ -17,15 +28,13 @@ class DocumentAIClient:
         self._settings = settings
         if not settings.gcp.project_id:
             raise ValueError("GCP__PROJECT_ID est requis pour Document AI.")
-        if not settings.gcp.document_ai_processor_id:
-            raise ValueError("GCP__DOCUMENT_AI_PROCESSOR_ID est requis pour Document AI.")
 
         api_endpoint = f"{settings.gcp.document_ai_location}-documentai.googleapis.com"
         self._document_client = documentai.DocumentProcessorServiceAsyncClient(
             client_options=ClientOptions(api_endpoint=api_endpoint)
         )
 
-    async def start_layout_extraction(
+    async def start_document_layout_parse(
         self,
         input_uri: str,
         output_uri: str,
@@ -50,9 +59,13 @@ class DocumentAIClient:
                         gcs_uri=output_uri
                     )
                 ),
+                # Le style guide est toujours un PDF d'une page.
+                # On préfère des chunks larges et peu nombreux, avec les headings ancetres
+                # pour garder le contexte de section dans chaque chunk.
                 process_options=documentai.ProcessOptions(
                     layout_config=documentai.ProcessOptions.LayoutConfig(
                         chunking_config=documentai.ProcessOptions.LayoutConfig.ChunkingConfig(
+                            chunk_size=_STYLE_GUIDE_CHUNK_SIZE_TOKENS,
                             include_ancestor_headings=True,
                         )
                     )
@@ -66,7 +79,7 @@ class DocumentAIClient:
             output_uri=output_uri,
         )
 
-    async def check_layout_extraction(
+    async def check_document_layout_parse(
         self,
         operation_id: str,
         output_uri: str,
@@ -74,42 +87,260 @@ class DocumentAIClient:
         operation = await self._document_client.transport.operations_client.get_operation(
             name=operation_id
         )
-
         if not operation.done:
             return None
-
         if operation.error.code != 0:
             raise RuntimeError(f"Document AI error: {operation.error.message}")
 
         metadata = documentai.BatchProcessMetadata.deserialize(operation.metadata.value)
-
         return DocumentParserProcessResult(
             processor_resource_name=self._processor_name(),
             operation_id=operation_id,
             output_uri=_resolve_output_uri(metadata, output_uri),
         )
 
-    async def extract_fragments(self, output_uri: str) -> list[StyleGuideFragmentCandidate]:
-        return await asyncio.to_thread(_extract_fragments_sync, output_uri)
+    async def extract_chunks(self, output_uri: str) -> list[StyleGuideChunkCandidate]:
+        return await asyncio.to_thread(_extract_chunks_sync, output_uri)
+
+    async def classify_technical_document(
+        self,
+        *,
+        input_uri: str,
+        mime_type: str = "application/pdf",
+    ) -> TechnicalDocumentClassificationResult:
+        gcp = self._settings.gcp
+        if not gcp.document_ai_classifier_processor_id:
+            raise ValueError("GCP__DOCUMENT_AI_CLASSIFIER_PROCESSOR_ID est requis.")
+
+        processor_name = self._processor_name_for(
+            processor_id=gcp.document_ai_classifier_processor_id,
+            processor_version=gcp.document_ai_classifier_processor_version,
+        )
+        request = documentai.ProcessRequest(
+            name=processor_name,
+            gcs_document=documentai.GcsDocument(gcs_uri=input_uri, mime_type=mime_type),
+            skip_human_review=True,
+        )
+        started = perf_counter()
+        response = await self._document_client.process_document(request=request)
+        latency_ms = int((perf_counter() - started) * 1000)
+
+        document = response.document
+        document_type, confidence = _resolve_document_type(document)
+
+        return TechnicalDocumentClassificationResult(
+            processor_resource_name=processor_name,
+            processor_version=gcp.document_ai_classifier_processor_version,
+            document_type=document_type,
+            confidence=confidence,
+            latency_ms=latency_ms,
+            request_config_snapshot={
+                "mode": "online",
+                "processor_kind": "custom_classifier",
+                "processor_resource_name": processor_name,
+                "processor_version": gcp.document_ai_classifier_processor_version,
+                "gcs_uri": input_uri,
+                "mime_type": mime_type,
+                "skip_human_review": True,
+            },
+            raw_response_summary={
+                "entity_count": len(document.entities),
+                "page_count": len(document.pages),
+            },
+        )
+
+    async def extract_technical_facts(
+        self,
+        *,
+        input_uri: str,
+        document_type: str,
+        mime_type: str = "application/pdf",
+    ) -> TechnicalDocumentExtractionResult:
+        gcp = self._settings.gcp
+        if not gcp.document_ai_extractor_processor_id:
+            raise ValueError("GCP__DOCUMENT_AI_EXTRACTOR_PROCESSOR_ID est requis.")
+
+        processor_name = self._processor_name_for(
+            processor_id=gcp.document_ai_extractor_processor_id,
+            processor_version=gcp.document_ai_extractor_processor_version,
+        )
+        request = documentai.ProcessRequest(
+            name=processor_name,
+            gcs_document=documentai.GcsDocument(gcs_uri=input_uri, mime_type=mime_type),
+            skip_human_review=True,
+        )
+        started = perf_counter()
+        response = await self._document_client.process_document(request=request)
+        latency_ms = int((perf_counter() - started) * 1000)
+        document = response.document
+
+        return TechnicalDocumentExtractionResult(
+            processor_resource_name=processor_name,
+            processor_version=gcp.document_ai_extractor_processor_version,
+            latency_ms=latency_ms,
+            request_config_snapshot={
+                "mode": "online",
+                "processor_kind": "custom_extractor_foundation_model",
+                "processor_resource_name": processor_name,
+                "processor_version": gcp.document_ai_extractor_processor_version,
+                "gcs_uri": input_uri,
+                "mime_type": mime_type,
+                "document_type": document_type,
+                "skip_human_review": True,
+            },
+            entities=[
+                _entity_to_technical_fact(entity) for entity in _iter_entities(document.entities)
+            ],
+        )
 
     def _processor_name(self) -> str:
         gcp = self._settings.gcp
-        if gcp.document_ai_processor_version:
+        if not gcp.document_ai_processor_id:
+            raise ValueError("GCP__DOCUMENT_AI_PROCESSOR_ID est requis pour Document AI.")
+        return self._processor_name_for(
+            processor_id=gcp.document_ai_processor_id,
+            processor_version=gcp.document_ai_processor_version,
+        )
+
+    def _processor_name_for(self, *, processor_id: str, processor_version: str | None) -> str:
+        gcp = self._settings.gcp
+        if processor_version:
             return self._document_client.processor_version_path(
                 gcp.project_id,
                 gcp.document_ai_location,
-                gcp.document_ai_processor_id,
-                gcp.document_ai_processor_version,
+                processor_id,
+                processor_version,
             )
 
         return self._document_client.processor_path(
             gcp.project_id,
             gcp.document_ai_location,
-            gcp.document_ai_processor_id,
+            processor_id,
         )
 
 
-def _extract_fragments_sync(output_uri: str) -> list[StyleGuideFragmentCandidate]:
+def _resolve_document_type(document: documentai.Document) -> tuple[str, float | None]:
+    candidates: list[tuple[str, float | None]] = []
+    for entity in document.entities:
+        label = _normalize_text(getattr(entity, "type_", None))
+        value = _normalize_text(getattr(entity, "mention_text", None))
+        confidence = _to_float(getattr(entity, "confidence", None))
+        generic_labels = {"document_type", "classification", "class", "type"}
+        raw_label = value if label.lower() in generic_labels and value else label or value
+        candidates.append((raw_label or "UNKNOWN", confidence))
+
+    if not candidates:
+        return "UNKNOWN", None
+
+    raw_label, confidence = max(candidates, key=lambda item: item[1] if item[1] is not None else -1)
+    return _map_document_type(raw_label), confidence
+
+
+def _map_document_type(raw_label: str) -> str:
+    normalized = raw_label.strip().lower().replace("-", "_").replace(" ", "_")
+    aliases = {
+        "technical_sheet": "TECHNICAL_SHEET",
+        "fiche_technique": "TECHNICAL_SHEET",
+        "technical": "TECHNICAL_SHEET",
+        "blueprint": "BLUEPRINT",
+        "plan": "BLUEPRINT",
+        "eco_certificate": "ECO_CERTIFICATE",
+        "certificat_ecologique": "ECO_CERTIFICATE",
+        "certificate": "ECO_CERTIFICATE",
+        "assembly_notice": "ASSEMBLY_NOTICE",
+        "notice_montage": "ASSEMBLY_NOTICE",
+        "assembly": "ASSEMBLY_NOTICE",
+        "material_specification": "MATERIAL_SPECIFICATION",
+        "matiere": "MATERIAL_SPECIFICATION",
+        "materials": "MATERIAL_SPECIFICATION",
+    }
+    return aliases.get(normalized, normalized.upper() if normalized else "UNKNOWN")
+
+
+def _entity_to_technical_fact(entity: documentai.Document.Entity) -> TechnicalDocumentEntity:
+    raw_entity_json = _proto_to_dict(entity)
+    page, bbox_json = _extract_page_anchor(entity)
+    normalized_value = _extract_normalized_value(entity)
+    return TechnicalDocumentEntity(
+        field_name=_normalize_text(getattr(entity, "type_", None)),
+        raw_value=_normalize_text(getattr(entity, "mention_text", None)) or None,
+        normalized_value=normalized_value,
+        unit=_extract_unit(raw_entity_json),
+        confidence=_to_float(getattr(entity, "confidence", None)),
+        evidence_text=_normalize_text(getattr(entity, "mention_text", None)) or None,
+        page=page,
+        bbox_json=bbox_json,
+        raw_entity_json=raw_entity_json,
+    )
+
+
+def _iter_entities(entities: Any) -> list[documentai.Document.Entity]:
+    flattened: list[documentai.Document.Entity] = []
+    for entity in entities:
+        flattened.append(entity)
+        flattened.extend(_iter_entities(list(getattr(entity, "properties", []) or [])))
+    return flattened
+
+
+def _extract_page_anchor(
+    entity: documentai.Document.Entity,
+) -> tuple[int | None, dict[str, Any] | None]:
+    page_anchor = getattr(entity, "page_anchor", None)
+    page_refs = list(getattr(page_anchor, "page_refs", []) or [])
+    if not page_refs:
+        return None, None
+
+    first_ref = page_refs[0]
+    page = _to_int(getattr(first_ref, "page", None))
+    page_number = page + 1 if page is not None else None
+    bbox = getattr(first_ref, "bounding_poly", None)
+    if bbox is None:
+        return page_number, None
+    return page_number, _proto_to_dict(bbox)
+
+
+def _extract_normalized_value(entity: documentai.Document.Entity) -> str | None:
+    normalized = getattr(entity, "normalized_value", None)
+    if normalized is None:
+        return _normalize_text(getattr(entity, "mention_text", None)) or None
+
+    text_value = _normalize_text(getattr(normalized, "text", None))
+    if text_value:
+        return text_value
+    return _normalize_text(getattr(entity, "mention_text", None)) or None
+
+
+def _extract_unit(raw_entity_json: dict[str, Any]) -> str | None:
+    normalized = raw_entity_json.get("normalizedValue")
+    if isinstance(normalized, dict):
+        unit = normalized.get("unit") or normalized.get("currencyCode")
+        if isinstance(unit, str) and unit.strip():
+            return unit.strip()
+    return None
+
+
+def _proto_to_dict(value: object) -> dict[str, Any]:
+    proto = getattr(value, "_pb", value)
+    try:
+        message = proto if isinstance(proto, Message) else value
+        return dict(
+            MessageToDict(
+                cast(Message, message),
+                preserving_proto_field_name=False,
+                use_integers_for_enums=False,
+            )
+        )
+    except Exception:
+        return {}
+
+
+def _to_float(value: object) -> float | None:
+    if isinstance(value, (float, int)):
+        return float(value)
+    return None
+
+
+def _extract_chunks_sync(output_uri: str) -> list[StyleGuideChunkCandidate]:
     result_uri = parse_gcs_uri(output_uri)
 
     document = documentai_toolbox.Document.from_gcs(
@@ -117,43 +348,54 @@ def _extract_fragments_sync(output_uri: str) -> list[StyleGuideFragmentCandidate
         gcs_prefix=result_uri.object_name,
     )
 
-    return _toolbox_document_to_fragments(document)
+    return _toolbox_document_to_chunks(document)
 
 
-def _toolbox_document_to_fragments(
+def _toolbox_document_to_chunks(
     document: documentai_toolbox.Document,
-) -> list[StyleGuideFragmentCandidate]:
-    texts = _chunk_texts(document)
+) -> list[StyleGuideChunkCandidate]:
+    chunk_candidates: list[StyleGuideChunkCandidate] = []
 
-    # POC: éviter un fallback paragraphe qui peut couper une règle en plusieurs fragments.
-    # Si le Layout Parser ne fournit pas de chunks, on conserve le texte complet.
-    if not texts and document.text:
-        texts = [str(document.text)]
+    for chunk_index, raw_chunk in enumerate(document.chunks, start=1):
+        contenu = _normalize_text(getattr(raw_chunk, "content", ""))
 
-    cleaned_texts = _texts_to_fragments(texts)
+        if not contenu:
+            continue
 
-    if not cleaned_texts:
-        return []
+        provider_id = _normalize_text(getattr(raw_chunk, "chunk_id", "")) or f"chunk-{chunk_index}"
+        page_span = getattr(raw_chunk, "page_span", None)  # la plage de pages couverte par un chunk
+        page_start = _to_int(getattr(page_span, "page_start", None))
+        page_end = _to_int(getattr(page_span, "page_end", None)) or page_start
 
-    return [
-        StyleGuideFragmentCandidate(
-            index_fragment=index,
-            contenu=text,
+        chunk_candidates.append(
+            StyleGuideChunkCandidate(
+                provider_id=provider_id,
+                index_chunk=chunk_index,
+                contenu=contenu,
+                page_start=page_start,
+                page_end=page_end,
+                evidence_json={"source": "chunk"},
+            )
         )
-        for index, text in enumerate(cleaned_texts, start=1)
-    ]
+
+    return chunk_candidates
 
 
-def _chunk_texts(document: documentai_toolbox.Document) -> list[str]:
-    return [
-        text
-        for chunk in document.chunks
-        if (text := str(getattr(chunk, "content", "") or "").strip())
-    ]
+def _to_int(value: object) -> int | None:
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.strip():
+        try:
+            return int(value)
+        except ValueError:
+            return None
+    return None
 
 
-def _texts_to_fragments(texts: list[str]) -> list[str]:
-    return [text.strip() for text in texts if text.strip()]
+def _normalize_text(value: object) -> str:
+    if value is None:
+        return ""
+    return " ".join(str(value).split())
 
 
 def _resolve_output_uri(

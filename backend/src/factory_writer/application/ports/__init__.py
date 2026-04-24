@@ -4,10 +4,12 @@ from .llm_gateway import (
     LLMGatewayPort,
     LLMMessage,
 )
+from .reasoning import ReasoningLevel
 
 __all__ = [
     "LLMCompletionRequest",
     "LLMCompletionResponse",
     "LLMGatewayPort",
     "LLMMessage",
+    "ReasoningLevel",
 ]

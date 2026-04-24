@@ -1,6 +1,6 @@
 <mission>
 Produis un style pack candidat pour Axolotl.
-Ce pack sera relu par Sophie avant activation runtime.
+Ce pack sera relu avant activation runtime.
 </mission>
 
 <langue>fr-FR</langue>
@@ -9,15 +9,15 @@ Ce pack sera relu par Sophie avant activation runtime.
 {{taxonomies_json}}
 </familles_autorisees_json>
 
-<fragments_guide_style_json>
-{{fragments_json}}
-</fragments_guide_style_json>
+<extraits_source_json>
+{{chunks_json}}
+</extraits_source_json>
 
 <strategie_extraction>
-1. Lis uniquement les fragments fournis dans fragments_guide_style_json.
-2. Extrais une regle seulement si elle est directement supportee par un fragment.
-3. Pour chaque regle, renseigne fragment_source_id avec l'identifiant exact du fragment source.
-4. Pour chaque regle, renseigne citation_source avec un court extrait copie depuis ce fragment.
+1. Lis uniquement les extraits source fournis dans <extraits_source_json>.
+2. Extrais une regle seulement si elle est directement supportee par un extrait source.
+3. Pour chaque regle, renseigne source_evidence_provider_id avec l'identifiant exact de l'extrait source.
+4. Pour chaque regle, renseigne citation_source avec un court extrait copie depuis cet extrait source.
 5. Reformule texte_regle en contrainte atomique, sans ajouter de sens absent de la citation.
 6. Utilise famille_code uniquement si la regle cible clairement une famille autorisee.
 7. Utilise famille_code=null pour une regle globale de marque.
@@ -25,17 +25,41 @@ Ce pack sera relu par Sophie avant activation runtime.
 9. Ne produis pas de regle speculative, implicite ou basee sur des connaissances externes.
 </strategie_extraction>
 
-<rappels_metier>
-- VOIX = regle globale de marque, applicable a tous les produits.
-- TON = regle contextuelle liee a une famille produit autorisee.
-- FORMATAGE = regle de structure, longueur, forme ou syntaxe.
-- PROMESSE_INTERDITE = claim ou formulation interdite.
-- HARD = contrainte bloquante.
-- SOFT = preference forte mais non bloquante.
-</rappels_metier>
+<definition_des_fragments_normatifs>
+- Un fragment normatif explicite est une ligne, une puce ou un item qui exprime directement une contrainte, une interdiction, une preference editoriale, un profil de ton, ou une consigne de formulation.
+- Les lignes codees (par exemple VG-*, HR-*, SR-*, CI-*) sont des fragments normatifs explicites.
+- Une ligne de profil contenant famille_code=... | objectif : ... | lexique : ... est aussi un fragment normatif explicite, meme si elle n'a pas de code HR/SR/VG/CI.
+- Une ligne de profil famille_code=... | objectif : ... | lexique : ... doit produire une regle TON dediee a cette famille.
+- Une ligne SR-* ciblee sur la meme famille doit produire une autre regle TON distincte. Ne fusionne jamais la ligne famille_code=... avec la ligne SR-* correspondante.
+- Les exemples editoriaux, la gouvernance, le moodboard, les metadonnees de document et les tableaux d'administration ne sont pas des regles, sauf s'ils contiennent eux-memes une consigne normative explicite.
+- Les expressions conseillees du lexique prefere sont des indices editoriaux. Ne les transforme pas en regles autonomes si le schema courant ne permet pas de les representer directement comme une contrainte explicite.
+</definition_des_fragments_normatifs>
 
-<regles_de_nullite>
-- famille_code doit etre null pour VOIX et pour toute regle globale.
-- famille_code ne doit jamais contenir une valeur inventee.
-- Si la valeur correcte n'est pas certaine, n'extrais pas la regle au lieu de remplir au hasard.
-</regles_de_nullite>
+<protocole_de_couverture>
+1. Dresse d'abord, en silence, un inventaire ordonne de tous les fragments normatifs explicites presents dans les extraits source.
+2. Pour chaque fragment normatif explicite representable dans le schema courant, produis au moins une regle.
+3. Prefere exactement une regle par fragment normatif explicite.
+4. Ne fusionne jamais deux fragments sources distincts en une seule regle.
+5. Ne dedoublonne pas deux fragments distincts sous pretexte qu'ils parlent du meme sujet ; garde une regle separee par citation_source distincte.
+6. Si un fragment contient un identifiant visible (VG-01, HR-02, SR-01, CI-03, etc.), conserve cet identifiant dans citation_source.
+7. Trie la liste finale regles dans l'ordre d'apparition de leurs fragments sources dans les extraits source.
+8. Avant de repondre, compare la liste finale a ton inventaire et ajoute toute regle manquante representable par le schema.
+</protocole_de_couverture>
+
+<protocole_de_classification>
+- Applique la semantique stable des types definie dans les instructions systeme.
+- HR-01 et HR-02 sont des PROMESSE_INTERDITE.
+- HR-03 reste une regle globale de VOIX.
+- SR-03 reste une regle globale de VOIX, pas une regle de FORMATAGE.
+</protocole_de_classification>
+
+<exemples_de_decoupage>
+- "VG-01 | hard Vouvoiement constant et distance respectueuse." => une regle VOIX, famille_code=null.
+- "famille_code=mobilier_jardin | objectif : presence sobre, architecturale, premium | lexique : matiere, ligne, art de vivre exterieur." => une regle TON dediee a mobilier_jardin.
+- "SR-01 | mobilier_jardin Favoriser matiere, stabilite, confort d'usage et scene de vie exterieure." => une autre regle TON dediee a mobilier_jardin, distincte de la ligne famille_code=....
+- "CI-01 | resiste aux intemperies a vie" => une regle PROMESSE_INTERDITE, HARD.
+- "HR-01 | globale Ne jamais inventer une performance ou une preuve absente des faits techniques." => une regle PROMESSE_INTERDITE, HARD.
+- "HR-03 | globale Ne jamais contredire matiere, dimension, certification ou contrainte d'assemblage." => une regle VOIX, HARD.
+- "SR-03 | globale Preferer des verbes concrets et mesures a tout superlatif facile." => une regle VOIX, SOFT.
+- Un exemple approuve/rejete qui illustre une regle deja explicite ailleurs ne doit pas creer une regle supplementaire.
+</exemples_de_decoupage>

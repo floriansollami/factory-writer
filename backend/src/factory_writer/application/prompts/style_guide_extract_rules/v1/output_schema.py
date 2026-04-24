@@ -11,14 +11,14 @@ FamilleCode = Annotated[str, StringConstraints(strip_whitespace=True, min_length
 class DraftStyleRuleV1(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    fragment_source_id: StrippedNonEmptyString = Field(
+    source_evidence_provider_id: StrippedNonEmptyString = Field(
         description=(
-            "Identifiant exact d'un fragment fourni en entree. Ne jamais inventer d'identifiant."
+            "Identifiant exact d'un chunk de preuve fourni en entree. Ne jamais inventer d'identifiant."
         )
     )
     citation_source: StrippedNonEmptyString = Field(
         description=(
-            "Court extrait copie depuis le fragment reference, justifiant la regle. "
+            "Court extrait copie depuis le chunk reference, justifiant la regle. "
             "Si aucun extrait direct ne justifie la regle, ne pas produire cette regle."
         )
     )
@@ -59,7 +59,7 @@ class DraftStylePackExtractionV1(BaseModel):
 
     regles: list[DraftStyleRuleV1] = Field(
         min_length=1,
-        description="Liste des regles explicitement justifiees par les fragments fournis.",
+        description="Liste des regles explicitement justifiees par les chunks fournis.",
     )
 
 

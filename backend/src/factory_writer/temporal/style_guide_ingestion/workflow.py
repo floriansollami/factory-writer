@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-import asyncio
 import uuid
 
 from temporalio import workflow
 
 from factory_writer.application.ports.style_guide_ingestion import (
-    StyleGuideChunkPersistResult,
     StyleGuideIngestionInput,
     StyleGuideLayoutJobResult,
     StyleGuideLayoutParseResult,
@@ -17,19 +15,17 @@ from factory_writer.temporal.common.config import (
     DOC_AI_POLL_INTERVAL,
     DOC_AI_RETRY_POLICY,
     DOC_AI_START_RETRY_POLICY,
-    HUMAN_APPROVAL_TIMEOUT,
     LLM_RETRY_POLICY,
-    LONG_ACTIVITY_TIMEOUT,
     MEDIUM_ACTIVITY_TIMEOUT,
     SHORT_ACTIVITY_TIMEOUT,
     TaskQueue,
 )
 from factory_writer.temporal.common.contracts import WorkflowExecutionStatus
 from factory_writer.temporal.style_guide_ingestion.contracts import (
-    StyleGuideApprovalSignalInput,
+    StyleGuideDraftStylePackResult,
+    StyleGuideFinalDecision,
     StyleGuideIngestionOutput,
     StyleGuideWorkflowState,
-    StylePackDraftResult,
 )
 
 # On utilise imports_passed_through pour empêcher la Sandbox Temporal d'analyser le code des Activités.
@@ -38,8 +34,6 @@ with workflow.unsafe.imports_passed_through():
     from factory_writer.temporal.style_guide_ingestion.activities import StyleGuideActivities
 
 
-_APPROVAL_TIMEOUT_MESSAGE = "Validation humaine du guide de style expirée."
-_APPROVAL_REJECTED_MESSAGE = "Guide de style rejeté lors de la validation humaine."
 _WORKFLOW_FAILURE_MESSAGE = (
     "Ingestion du guide de style interrompue. Voir l'historique Temporal pour le détail."
 )
@@ -50,32 +44,32 @@ class StyleGuideIngestionWorkflow:
     def __init__(self) -> None:
         self.state = StyleGuideWorkflowState()
 
-    @workflow.signal
-    def approve_pack(self, payload: StyleGuideApprovalSignalInput) -> None:
-        self.state.approved = payload.approved
-
     @workflow.query
     def get_state(self) -> StyleGuideWorkflowState:
         return self.state
 
-    @workflow.run
-    async def run(self, payload: StyleGuideIngestionInput) -> StyleGuideIngestionOutput:
-        workflow.logger.info(
-            "StyleGuideIngestionWorkflow.started",
-            source_id=payload.source_id,
-            file_uri=payload.file_uri,
+    @workflow.update
+    def approve_style_pack(self, style_pack_id: str) -> None:
+        self._record_final_decision(
+            expected_style_pack_id=style_pack_id,
+            decision=StyleGuideFinalDecision.APPROVE,
         )
 
-        try:
-            await workflow.execute_activity_method(
-                StyleGuideActivities.mark_source_in_progress,
-                payload.source_id,
-                task_queue=TaskQueue.STYLE_GUIDE_INGESTION.value,
-                # le temps maximum autorisé pour qu'un Worker exécute l'activité de bout en bout
-                start_to_close_timeout=DB_ACTIVITY_TIMEOUT,
-                retry_policy=DB_RETRY_POLICY,
-            )
+    @workflow.update
+    def reject_style_pack(self, style_pack_id: str) -> None:
+        self._record_final_decision(
+            expected_style_pack_id=style_pack_id,
+            decision=StyleGuideFinalDecision.REJECT,
+        )
 
+    @workflow.run
+    async def run(self, payload: StyleGuideIngestionInput) -> StyleGuideIngestionOutput:
+        self.state.ingestion_run_id = str(payload.ingestion_run_id)
+
+        # Temporal permet d'interroger (Query) l'état interne d'un workflow pendant qu'il tourne.
+        self.state.status = WorkflowExecutionStatus.BUILDING_CONTEXT
+
+        try:
             layout_job: StyleGuideLayoutJobResult = await workflow.execute_activity_method(
                 StyleGuideActivities.start_docai_job,
                 payload,
@@ -86,64 +80,78 @@ class StyleGuideIngestionWorkflow:
 
             layout_result = await self._wait_for_docai_result(layout_job)
 
-            chunk_result: StyleGuideChunkPersistResult = await workflow.execute_activity_method(
-                StyleGuideActivities.persist_fragments,
-                layout_result,
-                task_queue=TaskQueue.STYLE_GUIDE_INGESTION.value,
-                start_to_close_timeout=DB_ACTIVITY_TIMEOUT,
-                retry_policy=DB_RETRY_POLICY,
+            draft_style_pack: StyleGuideDraftStylePackResult = (
+                await workflow.execute_activity_method(
+                    StyleGuideActivities.generate_draft_pack,
+                    layout_result,
+                    task_queue=TaskQueue.STYLE_GUIDE_INGESTION.value,
+                    start_to_close_timeout=MEDIUM_ACTIVITY_TIMEOUT,
+                    retry_policy=LLM_RETRY_POLICY,
+                )
             )
 
-            draft_pack: StylePackDraftResult = await workflow.execute_activity_method(
-                StyleGuideActivities.generate_draft_pack,
-                chunk_result,
-                task_queue=TaskQueue.STYLE_GUIDE_INGESTION.value,
-                schedule_to_close_timeout=LONG_ACTIVITY_TIMEOUT,
-                start_to_close_timeout=MEDIUM_ACTIVITY_TIMEOUT,
-                retry_policy=LLM_RETRY_POLICY,
-            )
-            self.state.draft_pack_id = draft_pack.draft_pack_id
-            self.state.status = WorkflowExecutionStatus.WAITING_FOR_STYLE_APPROVAL
+            self.state.draft_style_pack_id = draft_style_pack.draft_style_pack_id
+            self.state.status = WorkflowExecutionStatus.PENDING_EDITOR_REVIEW
 
-            approval_timed_out = False
-            try:
-                await workflow.wait_condition(
-                    lambda: self.state.approved is not None,
-                    timeout=HUMAN_APPROVAL_TIMEOUT,
-                )
-            except TimeoutError:
-                approval_timed_out = True
-                self.state.approved = False
+            await workflow.wait_condition(lambda: self.state.final_decision is not None)
 
-            if self.state.approved is not True:
-                self.state.status = WorkflowExecutionStatus.FAILED
-                message = (
-                    _APPROVAL_TIMEOUT_MESSAGE if approval_timed_out else _APPROVAL_REJECTED_MESSAGE
+            final_decision = self.state.final_decision
+
+            if final_decision == StyleGuideFinalDecision.APPROVE:
+                await workflow.execute_activity_method(
+                    StyleGuideActivities.finalize_style_pack_approval,
+                    draft_style_pack.draft_style_pack_id,
+                    task_queue=TaskQueue.STYLE_GUIDE_INGESTION.value,
+                    start_to_close_timeout=SHORT_ACTIVITY_TIMEOUT,
+                    retry_policy=DB_RETRY_POLICY,
                 )
-                await self._mark_source_failed(payload.source_id, message)
+                await workflow.execute_activity_method(
+                    StyleGuideActivities.notify_style_pack_activated,
+                    draft_style_pack.draft_style_pack_id,
+                    task_queue=TaskQueue.STYLE_GUIDE_INGESTION.value,
+                    start_to_close_timeout=SHORT_ACTIVITY_TIMEOUT,
+                    retry_policy=DB_RETRY_POLICY,
+                )
+                self.state.status = WorkflowExecutionStatus.PUBLISHED
                 return StyleGuideIngestionOutput(
-                    status="approval_timeout" if approval_timed_out else "rejected",
-                    pack_id=None,
+                    status="completed",
+                    style_pack_id=draft_style_pack.draft_style_pack_id,
                 )
 
-            promoted_pack_id: str = await workflow.execute_activity_method(
-                StyleGuideActivities.promote_pack,
-                draft_pack,
+            await workflow.execute_activity_method(
+                StyleGuideActivities.finalize_style_pack_rejection,
+                draft_style_pack.draft_style_pack_id,
                 task_queue=TaskQueue.STYLE_GUIDE_INGESTION.value,
-                start_to_close_timeout=DB_ACTIVITY_TIMEOUT,
+                start_to_close_timeout=SHORT_ACTIVITY_TIMEOUT,
                 retry_policy=DB_RETRY_POLICY,
             )
-            self.state.status = WorkflowExecutionStatus.PUBLISHED
-            return StyleGuideIngestionOutput(status="success", pack_id=promoted_pack_id)
 
-        except asyncio.CancelledError:
-            self.state.status = WorkflowExecutionStatus.FAILED
-            await self._mark_source_failed(payload.source_id, _WORKFLOW_FAILURE_MESSAGE)
-            raise
+            return StyleGuideIngestionOutput(
+                status="rejected",
+                style_pack_id=draft_style_pack.draft_style_pack_id,
+            )
         except Exception:
             self.state.status = WorkflowExecutionStatus.FAILED
-            await self._mark_source_failed(payload.source_id, _WORKFLOW_FAILURE_MESSAGE)
+            await self._mark_ingestion_failed(payload.ingestion_run_id, _WORKFLOW_FAILURE_MESSAGE)
             raise
+
+    def _record_final_decision(
+        self,
+        *,
+        expected_style_pack_id: str,
+        decision: StyleGuideFinalDecision,
+    ) -> None:
+        if self.state.status != WorkflowExecutionStatus.PENDING_EDITOR_REVIEW:
+            raise RuntimeError("Le workflow n'est pas en attente de validation éditoriale.")
+        if self.state.draft_style_pack_id is None:
+            raise RuntimeError("Aucun pack candidat n'est associé à ce workflow.")
+        if expected_style_pack_id != self.state.draft_style_pack_id:
+            raise RuntimeError("Le pack ciblé ne correspond pas au draft courant du workflow.")
+        if self.state.final_decision is not None:
+            raise RuntimeError("Une décision finale a déjà été enregistrée pour ce workflow.")
+
+        self.state.final_decision = decision
+        self.state.decision_received_at = workflow.now().isoformat()
 
     async def _wait_for_docai_result(
         self,
@@ -159,26 +167,27 @@ class StyleGuideIngestionWorkflow:
                 start_to_close_timeout=SHORT_ACTIVITY_TIMEOUT,
                 retry_policy=DOC_AI_RETRY_POLICY,
             )
+
             if layout_result is not None:
                 return layout_result
 
             await workflow.sleep(DOC_AI_POLL_INTERVAL)
 
-    async def _mark_source_failed(
+    async def _mark_ingestion_failed(
         self,
-        source_id: uuid.UUID,
+        ingestion_run_id: uuid.UUID,
         message: str,
     ) -> None:
         try:
             await workflow.execute_activity_method(
-                StyleGuideActivities.mark_source_failed,
-                args=[source_id, message],
+                StyleGuideActivities.mark_ingestion_failed,
+                args=[ingestion_run_id, message],
                 task_queue=TaskQueue.STYLE_GUIDE_INGESTION.value,
                 start_to_close_timeout=DB_ACTIVITY_TIMEOUT,
                 retry_policy=DB_RETRY_POLICY,
             )
         except Exception as cleanup_error:
             workflow.logger.error(
-                "StyleGuideIngestionWorkflow.cleanup_failed",
-                cleanup_error_type=type(cleanup_error).__name__,
+                "StyleGuideIngestionWorkflow.cleanup_failed cleanup_error_type=%s",
+                type(cleanup_error).__name__,
             )

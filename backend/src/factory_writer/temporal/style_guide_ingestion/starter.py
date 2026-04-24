@@ -17,7 +17,7 @@ class TemporalStyleGuideWorkflowStarter(StyleGuideWorkflowStarterPort):
 
     async def start_style_guide_ingestion(self, payload: StyleGuideIngestionInput) -> str:
         try:
-            workflow_id = f"style-guide-ingestion-{payload.source_id}"
+            workflow_id = f"style-guide-ingestion-{payload.ingestion_run_id}"
 
             await self._client.start_workflow(
                 StyleGuideIngestionWorkflow.run,
@@ -26,7 +26,10 @@ class TemporalStyleGuideWorkflowStarter(StyleGuideWorkflowStarterPort):
                 task_queue=TaskQueue.STYLE_GUIDE_INGESTION.value,
                 id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
                 static_summary="Factory Writer style guide ingestion",
-                static_details=f"Style guide source {payload.source_id}",
+                static_details=(
+                    f"Style guide collection {payload.collection_id} / "
+                    f"document source {payload.document_source_id} / run {payload.ingestion_run_id}"
+                ),
             )
             return workflow_id
 

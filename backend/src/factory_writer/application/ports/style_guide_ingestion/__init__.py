@@ -6,7 +6,7 @@ from factory_writer.application.prompts.style_guide_extract_rules.v1.output_sche
 from .config import StyleGuideIngestionConfigPort
 from .document_parser import (
     DocumentParserProcessResult,
-    StyleGuideChunkPersistResult,
+    StyleGuideChunkCandidate,
     StyleGuideDocumentParserPort,
     StyleGuideFragmentCandidate,
     StyleGuideLayoutJobResult,
@@ -17,7 +17,6 @@ from .draft_pack_generator import (
     StyleGuideDraftPackGenerationResult,
     StyleGuideDraftPackGeneratorPort,
     StyleGuideDraftPackSnapshot,
-    StyleGuideFragmentSnapshot,
     StyleGuideTaxonomySnapshot,
 )
 from .prompt_registry import (
@@ -28,21 +27,37 @@ from .prompt_registry import (
     PromptRegistryPort,
     PromptSelector,
 )
-from .repository import StyleGuideRepositoryPort, StyleGuideSourceSnapshot
-from .storage import StyleGuideSourceFile, StyleGuideStoragePort
+from .repository import (
+    StyleGuideDocumentSourceSnapshot,
+    StyleGuideIngestionRunSnapshot,
+    StyleGuideIngestionStartPreparation,
+    StyleGuidePackSnapshot,
+    StyleGuideRepositoryPort,
+    StyleGuideRuleSnapshot,
+)
+from .storage import (
+    StyleGuideDocumentSourceFile,
+    StyleGuideStoragePort,
+    UploadedStyleGuideDocumentSourceFile,
+)
+from .workflow_controller import StyleGuideWorkflowControllerPort
 from .workflow_starter import StyleGuideIngestionInput, StyleGuideWorkflowStarterPort
 
 __all__ = [
     "StyleGuideIngestionConfigPort",
     "DocumentParserProcessResult",
     "StyleGuideDocumentParserPort",
+    "StyleGuideChunkCandidate",
     "StyleGuideFragmentCandidate",
     "StyleGuideIngestionInput",
-    "StyleGuideChunkPersistResult",
     "StyleGuideLayoutJobResult",
     "StyleGuideLayoutParseResult",
     "StyleGuideRepositoryPort",
-    "StyleGuideSourceSnapshot",
+    "StyleGuideIngestionRunSnapshot",
+    "StyleGuideIngestionStartPreparation",
+    "StyleGuideDocumentSourceSnapshot",
+    "StyleGuidePackSnapshot",
+    "StyleGuideRuleSnapshot",
     "PromptRegistryPort",
     "PromptSelector",
     "PromptDefinition",
@@ -53,11 +68,12 @@ __all__ = [
     "StyleGuideDraftPackGenerationMetadata",
     "StyleGuideDraftPackGenerationResult",
     "StyleGuideDraftPackSnapshot",
-    "StyleGuideFragmentSnapshot",
     "StyleGuideTaxonomySnapshot",
     "DraftStyleRuleV1",
     "DraftStylePackExtractionV1",
-    "StyleGuideSourceFile",
+    "StyleGuideDocumentSourceFile",
     "StyleGuideStoragePort",
+    "UploadedStyleGuideDocumentSourceFile",
     "StyleGuideWorkflowStarterPort",
+    "StyleGuideWorkflowControllerPort",
 ]

@@ -1,22 +1,27 @@
 from __future__ import annotations
 
+from enum import StrEnum
+
 from factory_writer.temporal.common.contracts import TemporalPayloadModel, WorkflowExecutionStatus
 
 
-class StyleGuideApprovalSignalInput(TemporalPayloadModel):
-    approved: bool
+class StyleGuideFinalDecision(StrEnum):
+    APPROVE = "APPROVE"
+    REJECT = "REJECT"
 
 
 class StyleGuideWorkflowState(TemporalPayloadModel):
-    status: WorkflowExecutionStatus = WorkflowExecutionStatus.WAITING_FOR_STYLE_APPROVAL
-    draft_pack_id: str | None = None
-    approved: bool | None = None
+    status: WorkflowExecutionStatus = WorkflowExecutionStatus.BUILDING_CONTEXT
+    ingestion_run_id: str | None = None
+    draft_style_pack_id: str | None = None
+    final_decision: StyleGuideFinalDecision | None = None
+    decision_received_at: str | None = None
 
 
-class StylePackDraftResult(TemporalPayloadModel):
-    draft_pack_id: str
+class StyleGuideDraftStylePackResult(TemporalPayloadModel):
+    draft_style_pack_id: str
 
 
 class StyleGuideIngestionOutput(TemporalPayloadModel):
     status: str
-    pack_id: str | None = None
+    style_pack_id: str | None = None

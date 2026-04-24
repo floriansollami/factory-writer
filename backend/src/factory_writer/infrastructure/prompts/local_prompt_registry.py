@@ -2,6 +2,7 @@ from importlib import import_module, resources
 from types import ModuleType
 from typing import Any
 
+from factory_writer.application.ports.reasoning import ReasoningLevel
 from factory_writer.application.ports.style_guide_ingestion import (
     PromptDefinition,
     PromptLLMConfig,
@@ -60,5 +61,41 @@ def _llm_config_from_manifest(manifest: ModuleType) -> PromptLLMConfig:
         model=str(config["model"]),
         temperature=float(config["temperature"]),
         max_tokens=int(config["max_tokens"]),
+        reasoning_level=_reasoning_level_from_manifest(config),
         response_format=dict(config["response_format"]),
     )
+
+
+def _reasoning_level_from_manifest(config: dict[str, Any]) -> ReasoningLevel | None:
+    if config.get("reasoning_level") is not None:
+        return _coerce_reasoning_level(config["reasoning_level"])
+    if config.get("reasoning_effort") is not None:
+        return _legacy_reasoning_effort_to_level(config["reasoning_effort"])
+    return None
+
+
+def _coerce_reasoning_level(value: Any) -> ReasoningLevel:
+    normalized = str(value).strip().lower()
+    if normalized not in {"none", "minimal", "low", "medium", "high"}:
+        raise ValueError(f"reasoning_level invalide dans le manifest prompt: {value}")
+    return normalized  # type: ignore[return-value]
+
+
+def _legacy_reasoning_effort_to_level(value: Any) -> ReasoningLevel:
+    normalized = str(value).strip().lower()
+    mapping = {
+        "none": "none",
+        "disable": "none",
+        "minimal": "minimal",
+        "low": "low",
+        "medium": "medium",
+        "high": "high",
+        "xhigh": "high",
+        "default": "medium",
+    }
+    try:
+        return mapping[normalized]  # type: ignore[return-value]
+    except KeyError as exc:
+        raise ValueError(
+            f"reasoning_effort legacy invalide dans le manifest prompt: {value}"
+        ) from exc
