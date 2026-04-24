@@ -8,12 +8,6 @@ class StatutSource(enum.StrEnum):
     ERREUR = "ERREUR"
 
 
-class StatutPack(enum.StrEnum):
-    BROUILLON = "BROUILLON"
-    APPROUVE = "APPROUVE"
-    ACTIF = "ACTIF"
-
-
 class TypeRegle(enum.StrEnum):
     VOIX = "VOIX"
     TON = "TON"

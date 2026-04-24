@@ -1,8 +1,8 @@
-"""initial schema
+"""drop legacy style guide schema
 
-Revision ID: 20260415_0001
-Revises:
-Create Date: 2026-04-18 15:00:00.000000
+Revision ID: 20260421_0003
+Revises: 20260421_0002
+Create Date: 2026-04-21 18:20:00.000000
 """
 
 from __future__ import annotations
@@ -14,11 +14,18 @@ import sqlalchemy as sa
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = "20260415_0001"
-down_revision: str | None = None
+revision: str = "20260421_0003"
+down_revision: str | None = "20260421_0002"
 branch_labels: Sequence[str] | None = None
 depends_on: Sequence[str] | None = None
 
+
+statut_pack_enum = sa.Enum(
+    "BROUILLON",
+    "APPROUVE",
+    "ACTIF",
+    name="statutpack",
+)
 
 statut_source_enum = sa.Enum(
     "EN_ATTENTE",
@@ -26,12 +33,7 @@ statut_source_enum = sa.Enum(
     "TERMINE",
     "ERREUR",
     name="statutsource",
-)
-statut_pack_enum = sa.Enum(
-    "BROUILLON",
-    "APPROUVE",
-    "ACTIF",
-    name="statutpack",
+    create_type=False,
 )
 type_regle_enum = sa.Enum(
     "VOIX",
@@ -39,15 +41,39 @@ type_regle_enum = sa.Enum(
     "FORMATAGE",
     "PROMESSE_INTERDITE",
     name="typeregle",
+    create_type=False,
 )
 niveau_contrainte_enum = sa.Enum(
     "HARD",
     "SOFT",
     name="niveaucontrainte",
+    create_type=False,
 )
 
 
 def upgrade() -> None:
+    op.drop_index(op.f("ix_regle_style_taxonomie_produit_id"), table_name="regle_style")
+    op.drop_index(op.f("ix_regle_style_pack_id"), table_name="regle_style")
+    op.drop_index(op.f("ix_regle_style_fragment_source_id"), table_name="regle_style")
+    op.drop_table("regle_style")
+
+    op.drop_index(op.f("ix_pack_style_source_id"), table_name="pack_style")
+    op.drop_table("pack_style")
+
+    op.drop_index(op.f("ix_fragment_style_source_id"), table_name="fragment_style")
+    op.drop_table("fragment_style")
+
+    op.drop_index(op.f("ix_source_guide_style_storage_uri"), table_name="source_guide_style")
+    op.drop_table("source_guide_style")
+
+    bind = op.get_bind()
+    statut_pack_enum.drop(bind, checkfirst=True)
+
+
+def downgrade() -> None:
+    bind = op.get_bind()
+    statut_pack_enum.create(bind, checkfirst=True)
+
     op.create_table(
         "source_guide_style",
         sa.Column("storage_uri", sa.String(), nullable=False),
@@ -67,24 +93,6 @@ def upgrade() -> None:
         op.f("ix_source_guide_style_storage_uri"),
         "source_guide_style",
         ["storage_uri"],
-        unique=True,
-    )
-
-    op.create_table(
-        "taxonomie_produit",
-        sa.Column("famille_code", sa.String(), nullable=False),
-        sa.Column("libelle_fr", sa.String(), nullable=False),
-        sa.Column("parent_id", sa.Uuid(), nullable=True),
-        sa.Column("id", sa.Uuid(), nullable=False),
-        sa.Column("created_at", sa.DateTime(), nullable=False),
-        sa.Column("updated_at", sa.DateTime(), nullable=False),
-        sa.ForeignKeyConstraint(["parent_id"], ["taxonomie_produit.id"], ondelete="SET NULL"),
-        sa.PrimaryKeyConstraint("id"),
-    )
-    op.create_index(
-        op.f("ix_taxonomie_produit_famille_code"),
-        "taxonomie_produit",
-        ["famille_code"],
         unique=True,
     )
 
@@ -160,28 +168,3 @@ def upgrade() -> None:
         ["taxonomie_produit_id"],
         unique=False,
     )
-
-
-def downgrade() -> None:
-    op.drop_index(op.f("ix_regle_style_taxonomie_produit_id"), table_name="regle_style")
-    op.drop_index(op.f("ix_regle_style_pack_id"), table_name="regle_style")
-    op.drop_index(op.f("ix_regle_style_fragment_source_id"), table_name="regle_style")
-    op.drop_table("regle_style")
-
-    op.drop_index(op.f("ix_pack_style_source_id"), table_name="pack_style")
-    op.drop_table("pack_style")
-
-    op.drop_index(op.f("ix_fragment_style_source_id"), table_name="fragment_style")
-    op.drop_table("fragment_style")
-
-    op.drop_index(op.f("ix_taxonomie_produit_famille_code"), table_name="taxonomie_produit")
-    op.drop_table("taxonomie_produit")
-
-    op.drop_index(op.f("ix_source_guide_style_storage_uri"), table_name="source_guide_style")
-    op.drop_table("source_guide_style")
-
-    bind = op.get_bind()
-    niveau_contrainte_enum.drop(bind, checkfirst=True)
-    type_regle_enum.drop(bind, checkfirst=True)
-    statut_pack_enum.drop(bind, checkfirst=True)
-    statut_source_enum.drop(bind, checkfirst=True)

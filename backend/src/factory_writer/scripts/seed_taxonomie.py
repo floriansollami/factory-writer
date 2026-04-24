@@ -4,7 +4,7 @@ import logging
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
-from factory_writer.infrastructure.database.models.style_guide import TaxonomieProduit
+from factory_writer.infrastructure.database.models.taxonomy import TaxonomieProduit
 from factory_writer.infrastructure.database.session import get_session_factory
 
 logging.basicConfig(level=logging.INFO)

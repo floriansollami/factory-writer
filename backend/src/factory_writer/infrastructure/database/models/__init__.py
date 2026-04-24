@@ -1,18 +1,32 @@
 from factory_writer.infrastructure.database.models.base import Base, BaseModel
-from factory_writer.infrastructure.database.models.style_guide import (
-    FragmentStyle,
-    PackStyle,
-    RegleStyle,
-    SourceGuideStyle,
-    TaxonomieProduit,
+from factory_writer.infrastructure.database.models.poc_ingestion import (
+    CommercialSignalSnapshot,
+    DocumentCollection,
+    DocumentIngestionRun,
+    DocumentSource,
+    Product,
+    ProductContextSnapshot,
+    StylePack,
+    StyleRule,
+    TechnicalFact,
+    TechnicalFactCandidate,
+    TechnicalReviewCase,
 )
+from factory_writer.infrastructure.database.models.taxonomy import TaxonomieProduit
 
 __all__ = [
     "Base",
     "BaseModel",
-    "SourceGuideStyle",
-    "FragmentStyle",
-    "PackStyle",
+    "Product",
+    "ProductContextSnapshot",
+    "CommercialSignalSnapshot",
+    "DocumentCollection",
+    "DocumentSource",
+    "DocumentIngestionRun",
+    "StylePack",
+    "StyleRule",
+    "TechnicalFactCandidate",
+    "TechnicalReviewCase",
+    "TechnicalFact",
     "TaxonomieProduit",
-    "RegleStyle",
 ]
