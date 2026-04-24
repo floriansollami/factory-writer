@@ -1,170 +1,141 @@
 from __future__ import annotations
 
-import asyncio
-
 import structlog
 from temporalio import activity
 
-from factory_writer.temporal.common.contracts import PublicationDecision
+from factory_writer.application.ports.product_technical_ingestion import (
+    ProductContextReadiness,
+    ProductContextReference,
+)
+from factory_writer.application.services.product_technical_ingestion_service import (
+    ProductTechnicalIngestionService,
+)
+from factory_writer.temporal.common.contracts import WorkflowExecutionStatus
 from factory_writer.temporal.sku_lifecycle.contracts import (
-    GeneratedArtifactRef,
-    GenerationRecipeLoadInput,
-    GenerationRecipeResult,
-    GenerationStepInput,
-    PublishContentInput,
-    PublishContentResult,
-    PublishGateDecision,
-    PublishGateInput,
-    SignalSnapshotLoadInput,
-    SignalSnapshotResult,
-    StylePackLoadInput,
-    StylePackResult,
-    TechnicalFactsExtractionInput,
-    TechnicalFactsExtractionResult,
+    ContextReadinessCheckInput,
+    CreateProductContextSnapshotInput,
+    LoadCanonicalProductInput,
+    LoadCanonicalProductResult,
+    ProductContextReadinessResult,
+    ProductContextRef,
+    ProductContextSnapshotResult,
 )
 
 logger = structlog.get_logger(__name__)
 
 
-def _artifact_id(kind: str, sku: str) -> str:
-    return f"{kind}-{sku.lower()}-placeholder"
+class ProductLifecycleActivities:
+    def __init__(self, service: ProductTechnicalIngestionService) -> None:
+        self._service = service
+
+    @activity.defn
+    async def load_canonical_product(
+        self,
+        payload: LoadCanonicalProductInput,
+    ) -> LoadCanonicalProductResult:
+        logger.info(
+            "Product lifecycle | canonical product loading",
+            product_id=payload.product.product_id,
+            sku=payload.product.sku,
+        )
+
+        result = await self._service.load_canonical_product(_to_app_product_ref(payload.product))
+
+        return LoadCanonicalProductResult(product=_to_temporal_product_ref(result.product))
+
+    @activity.defn
+    async def check_product_context_readiness(
+        self,
+        payload: ContextReadinessCheckInput,
+    ) -> ProductContextReadinessResult:
+        logger.info(
+            "Product lifecycle | context readiness check",
+            product_id=payload.product.product_id,
+            sku=payload.product.sku,
+            technical_ingestion_run_id=payload.technical_ingestion_run_id,
+        )
+        readiness = await self._service.check_product_context_readiness(
+            product=_to_app_product_ref(payload.product),
+            technical_ingestion_run_id=payload.technical_ingestion_run_id,
+        )
+        return _to_temporal_readiness(readiness)
+
+    @activity.defn
+    async def create_product_context_snapshot(
+        self,
+        payload: CreateProductContextSnapshotInput,
+    ) -> ProductContextSnapshotResult:
+        logger.info(
+            "Product lifecycle | context snapshot creation",
+            product_id=payload.product.product_id,
+            sku=payload.product.sku,
+            technical_ingestion_run_id=payload.technical_ingestion_run_id,
+        )
+        result = await self._service.create_product_context_snapshot(
+            product=_to_app_product_ref(payload.product),
+            technical_ingestion_run_id=payload.technical_ingestion_run_id,
+            readiness=_to_app_readiness(payload.readiness),
+        )
+        return ProductContextSnapshotResult(
+            product_context_snapshot_id=result.product_context_snapshot_id
+        )
 
 
-@activity.defn
-async def extract_archive_and_facts(
-    payload: TechnicalFactsExtractionInput,
-) -> TechnicalFactsExtractionResult:
-    logger.info(
-        "extract_archive_and_facts.started",
-        sku=payload.product.sku,
-        archive_uri=payload.archive_signal.archive_uri,
+def _to_app_product_ref(product: ProductContextRef) -> ProductContextReference:
+    return ProductContextReference(
+        product_id=product.product_id,
+        sku=product.sku,
+        famille_code=product.famille_code,
+        sous_famille_code=product.sous_famille_code,
+        season_code=product.season_code,
+        segment_prix_code=product.segment_prix_code,
+        langue_principale=product.langue_principale,
     )
-    activity.heartbeat("archive_received")
-    await asyncio.sleep(0)
-    return TechnicalFactsExtractionResult(
-        facts_snapshot_id=f"facts-{payload.product.sku.lower()}-placeholder",
-        evidence_bundle_id=f"evidence-{payload.product.sku.lower()}-placeholder",
-        validation_status="placeholder_validated",
+
+
+def _to_temporal_product_ref(product: ProductContextReference) -> ProductContextRef:
+    return ProductContextRef(
+        product_id=product.product_id,
+        sku=product.sku,
+        famille_code=product.famille_code,
+        sous_famille_code=product.sous_famille_code,
+        season_code=product.season_code,
+        segment_prix_code=product.segment_prix_code,
+        langue_principale=product.langue_principale,
     )
 
 
-@activity.defn
-async def load_signal_snapshot(payload: SignalSnapshotLoadInput) -> SignalSnapshotResult:
-    logger.info("load_signal_snapshot.started", sku=payload.product.sku)
-    await asyncio.sleep(0)
-    return SignalSnapshotResult(
-        signal_snapshot_id=f"signal-{payload.product.sku.lower()}-latest",
-        cohort_key_used=(
-            f"{payload.product.famille_code}.{payload.product.sous_famille_code}."
-            f"{payload.product.segment_prix_code or 'default'}"
+def _to_temporal_readiness(readiness: ProductContextReadiness) -> ProductContextReadinessResult:
+    return ProductContextReadinessResult(
+        ready=readiness.ready,
+        missing_prerequisites=readiness.missing_prerequisites,
+        waiting_status=(
+            WorkflowExecutionStatus(readiness.waiting_status) if readiness.waiting_status else None
         ),
-        snapshot_status="placeholder_final_ready",
+        style_pack_id=readiness.style_pack_id,
+        style_pack_version_label=readiness.style_pack_version_label,
+        commercial_signal_snapshot_id=readiness.commercial_signal_snapshot_id,
+        commercial_snapshot_id=readiness.commercial_snapshot_id,
+        commercial_cohort_key=readiness.commercial_cohort_key,
+        commercial_selection_reason=readiness.commercial_selection_reason,
+        commercial_matched_fields=readiness.commercial_matched_fields,
+        technical_fact_ids=readiness.technical_fact_ids,
+        technical_facts=readiness.technical_facts,
     )
 
 
-@activity.defn
-async def load_style_pack(payload: StylePackLoadInput) -> StylePackResult:
-    logger.info("load_style_pack.started", sku=payload.product.sku)
-    await asyncio.sleep(0)
-    return StylePackResult(
-        style_pack_id="style-pack-active-placeholder",
-        version_label="style-pack-v1-placeholder",
-    )
-
-
-@activity.defn
-async def load_generation_recipe(payload: GenerationRecipeLoadInput) -> GenerationRecipeResult:
-    logger.info("load_generation_recipe.started", sku=payload.product.sku)
-    await asyncio.sleep(0)
-    return GenerationRecipeResult(
-        generation_recipe_id="generation-recipe-active-placeholder",
-        version_label="generation-recipe-v1-placeholder",
-    )
-
-
-@activity.defn
-async def generate_claim_plan(payload: GenerationStepInput) -> GeneratedArtifactRef:
-    sku = payload.context_snapshot.product.sku
-    logger.info("generate_claim_plan.started", sku=sku)
-    await asyncio.sleep(0)
-    return GeneratedArtifactRef(
-        artifact_id=_artifact_id("claim-plan", sku),
-        artifact_kind="claim_plan",
-        status="placeholder_generated",
-    )
-
-
-@activity.defn
-async def generate_redaction_plan(payload: GenerationStepInput) -> GeneratedArtifactRef:
-    sku = payload.context_snapshot.product.sku
-    logger.info(
-        "generate_redaction_plan.started",
-        sku=sku,
-        upstream_artifact_id=payload.upstream_artifact_id,
-    )
-    await asyncio.sleep(0)
-    return GeneratedArtifactRef(
-        artifact_id=_artifact_id("redaction-plan", sku),
-        artifact_kind="redaction_plan",
-        status="placeholder_generated",
-    )
-
-
-@activity.defn
-async def generate_final_draft(payload: GenerationStepInput) -> GeneratedArtifactRef:
-    sku = payload.context_snapshot.product.sku
-    logger.info(
-        "generate_final_draft.started",
-        sku=sku,
-        upstream_artifact_id=payload.upstream_artifact_id,
-    )
-    await asyncio.sleep(0)
-    return GeneratedArtifactRef(
-        artifact_id=_artifact_id("final-draft", sku),
-        artifact_kind="final_draft",
-        status="placeholder_generated",
-    )
-
-
-@activity.defn
-async def review_and_rewrite(payload: GenerationStepInput) -> GeneratedArtifactRef:
-    sku = payload.context_snapshot.product.sku
-    logger.info(
-        "review_and_rewrite.started",
-        sku=sku,
-        upstream_artifact_id=payload.upstream_artifact_id,
-    )
-    await asyncio.sleep(0)
-    return GeneratedArtifactRef(
-        artifact_id=_artifact_id("review", sku),
-        artifact_kind="review",
-        status="placeholder_generated",
-    )
-
-
-@activity.defn
-async def evaluate_publish_gate(payload: PublishGateInput) -> PublishGateDecision:
-    logger.info(
-        "evaluate_publish_gate.started",
-        sku=payload.context_snapshot.product.sku,
-        review_artifact_id=payload.review_artifact.artifact_id,
-    )
-    await asyncio.sleep(0)
-    return PublishGateDecision(
-        decision=PublicationDecision.PENDING_EDITOR_REVIEW,
-        reason="placeholder_publish_gate_requires_human_validation",
-    )
-
-
-@activity.defn
-async def publish_generated_content(payload: PublishContentInput) -> PublishContentResult:
-    logger.info(
-        "publish_generated_content.started",
-        sku=payload.context_snapshot.product.sku,
-        review_artifact_id=payload.review_artifact.artifact_id,
-    )
-    await asyncio.sleep(0)
-    return PublishContentResult(
-        published_content_id=f"content-{payload.context_snapshot.product.sku.lower()}-placeholder",
-        target_system="product-content-api",
+def _to_app_readiness(readiness: ProductContextReadinessResult) -> ProductContextReadiness:
+    return ProductContextReadiness(
+        ready=readiness.ready,
+        missing_prerequisites=readiness.missing_prerequisites,
+        waiting_status=readiness.waiting_status.value if readiness.waiting_status else None,
+        style_pack_id=readiness.style_pack_id,
+        style_pack_version_label=readiness.style_pack_version_label,
+        commercial_signal_snapshot_id=readiness.commercial_signal_snapshot_id,
+        commercial_snapshot_id=readiness.commercial_snapshot_id,
+        commercial_cohort_key=readiness.commercial_cohort_key,
+        commercial_selection_reason=readiness.commercial_selection_reason,
+        commercial_matched_fields=readiness.commercial_matched_fields,
+        technical_fact_ids=readiness.technical_fact_ids,
+        technical_facts=readiness.technical_facts,
     )

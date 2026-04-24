@@ -1,209 +1,171 @@
 from __future__ import annotations
 
+from contextlib import suppress
+
 from temporalio import workflow
 
 from factory_writer.temporal.common.config import (
     DB_RETRY_POLICY,
-    DOC_AI_RETRY_POLICY,
-    LLM_RETRY_POLICY,
     LONG_ACTIVITY_TIMEOUT,
-    MEDIUM_ACTIVITY_TIMEOUT,
     SHORT_ACTIVITY_TIMEOUT,
     TaskQueue,
 )
-from factory_writer.temporal.common.contracts import (
-    PublicationDecision,
-    WorkflowExecutionStatus,
-)
+from factory_writer.temporal.common.contracts import WorkflowExecutionStatus
 from factory_writer.temporal.sku_lifecycle.contracts import (
-    ContextSnapshot,
-    GenerationRecipeLoadInput,
-    GenerationStepInput,
+    CommercialSnapshotAvailableSignal,
+    ContextReadinessCheckInput,
+    CreateProductContextSnapshotInput,
+    LoadCanonicalProductInput,
     ProductContextRef,
-    PublishContentInput,
-    PublishGateInput,
-    SignalSnapshotLoadInput,
-    SkuLifecycleInput,
-    SkuLifecycleOutput,
-    SkuLifecycleState,
-    StylePackLoadInput,
-    TechnicalArchiveSignalInput,
-    TechnicalFactsExtractionInput,
+    ProductLifecycleInput,
+    ProductLifecycleOutput,
+    ProductLifecycleState,
+    StylePackActivatedSignal,
+    TechnicalSourcesUploadedSignal,
+)
+from factory_writer.temporal.technical_dossier_ingestion.contracts import (
+    TechnicalDossierIngestionInput,
+)
+from factory_writer.temporal.technical_dossier_ingestion.workflow import (
+    TechnicalDossierIngestionWorkflow,
 )
 
-# On utilise imports_passed_through pour empêcher la Sandbox Temporal d'analyser le code des Activités.
-# (Les activités importent SQLAlchemy, Google Cloud, etc. qui feraient crasher la sandbox déterministe).
 with workflow.unsafe.imports_passed_through():
-    from factory_writer.temporal.sku_lifecycle.activities import (
-        evaluate_publish_gate,
-        extract_archive_and_facts,
-        generate_claim_plan,
-        generate_final_draft,
-        generate_redaction_plan,
-        load_generation_recipe,
-        load_signal_snapshot,
-        load_style_pack,
-        publish_generated_content,
-        review_and_rewrite,
-    )
+    from factory_writer.temporal.sku_lifecycle.activities import ProductLifecycleActivities
 
 
-@workflow.defn(name="SkuLifecycleWorkflow")
-class SkuLifecycleWorkflow:
+_READINESS_RECHECK_INTERVAL = SHORT_ACTIVITY_TIMEOUT
+
+
+@workflow.defn(name="ProductLifecycleWorkflow")
+class ProductLifecycleWorkflow:
     def __init__(self) -> None:
-        self.state = SkuLifecycleState()
+        self.state = ProductLifecycleState()
         self.product: ProductContextRef | None = None
-        self.archive_signal: TechnicalArchiveSignalInput | None = None
+        self.sources_signal: TechnicalSourcesUploadedSignal | None = None
 
     @workflow.signal
-    def technical_archive_received(self, payload: TechnicalArchiveSignalInput) -> None:
-        self.archive_signal = payload
-        self.state.technical_archive_received = True
-        self.state.technical_archive_uri = payload.archive_uri
+    def technical_sources_uploaded(self, payload: TechnicalSourcesUploadedSignal) -> None:
+        self.sources_signal = payload
+        self.state.technical_sources_uploaded = True
+        self.state.technical_ingestion_run_id = payload.ingestion_run_id
+        self.state.technical_document_source_ids = payload.document_source_ids
+
+    @workflow.signal
+    def style_pack_activated(self, payload: StylePackActivatedSignal) -> None:
+        self.state.style_pack_id = payload.style_pack_id
+        self.state.readiness_event_count += 1
+
+    @workflow.signal
+    def commercial_snapshot_available(self, payload: CommercialSnapshotAvailableSignal) -> None:
+        self.state.commercial_signal_snapshot_id = payload.snapshot_id
+        self.state.readiness_event_count += 1
 
     @workflow.query
-    def get_state(self) -> SkuLifecycleState:
+    def get_state(self) -> ProductLifecycleState:
         return self.state
 
     @workflow.run
-    async def run(self, payload: SkuLifecycleInput) -> SkuLifecycleOutput:
+    async def run(self, payload: ProductLifecycleInput) -> ProductLifecycleOutput:
         self.product = payload.product
+
         if payload.resume_state is not None:
             self.state = payload.resume_state
 
-        workflow.logger.info("SkuLifecycleWorkflow.started", sku=payload.product.sku)
+        workflow.logger.info("ProductLifecycleWorkflow.started", sku=payload.product.sku)
 
-        self.state.status = WorkflowExecutionStatus.WAITING_FOR_TECHNICAL_ARCHIVE
-        await workflow.wait_condition(lambda: self.archive_signal is not None)
-        archive_signal = self.archive_signal
-        assert archive_signal is not None
+        canonical_product_result = await workflow.execute_activity_method(
+            ProductLifecycleActivities.load_canonical_product,
+            LoadCanonicalProductInput(product=payload.product),
+            task_queue=TaskQueue.PRODUCT_LIFECYCLE.value,
+            start_to_close_timeout=SHORT_ACTIVITY_TIMEOUT,
+            retry_policy=DB_RETRY_POLICY,
+        )
 
-        if workflow.info().is_continue_as_new_suggested():
-            workflow.continue_as_new(
-                SkuLifecycleInput(product=payload.product, resume_state=self.state)
-            )
+        canonical_product = canonical_product_result.product
+        self.product = canonical_product
+        self.state.product_loaded = True
+
+        self.state.status = WorkflowExecutionStatus.WAITING_TECHNICAL_SOURCES
+        await workflow.wait_condition(lambda: self.sources_signal is not None)
+        sources_signal = self.sources_signal
+        if sources_signal is None:
+            raise RuntimeError("Aucun signal de sources techniques reçu.")
 
         self.state.status = WorkflowExecutionStatus.EXTRACTING_FACTS
-        facts_result = await workflow.execute_activity(
-            extract_archive_and_facts,
-            TechnicalFactsExtractionInput(
-                product=payload.product,
-                archive_signal=archive_signal,
+        technical_result = await workflow.execute_child_workflow(
+            TechnicalDossierIngestionWorkflow.run,
+            TechnicalDossierIngestionInput(
+                product=canonical_product,
+                sources_signal=sources_signal,
             ),
-            task_queue=TaskQueue.SKU_LIFECYCLE.value,
-            start_to_close_timeout=LONG_ACTIVITY_TIMEOUT,
-            retry_policy=DOC_AI_RETRY_POLICY,
-        )
-        self.state.facts_snapshot_id = facts_result.facts_snapshot_id
-
-        self.state.status = WorkflowExecutionStatus.BUILDING_CONTEXT
-        signal_snapshot = await workflow.execute_activity(
-            load_signal_snapshot,
-            SignalSnapshotLoadInput(product=payload.product),
-            task_queue=TaskQueue.SKU_LIFECYCLE.value,
-            start_to_close_timeout=MEDIUM_ACTIVITY_TIMEOUT,
-            retry_policy=DB_RETRY_POLICY,
-        )
-        style_pack = await workflow.execute_activity(
-            load_style_pack,
-            StylePackLoadInput(product=payload.product),
-            task_queue=TaskQueue.SKU_LIFECYCLE.value,
-            start_to_close_timeout=SHORT_ACTIVITY_TIMEOUT,
-            retry_policy=DB_RETRY_POLICY,
-        )
-        generation_recipe = await workflow.execute_activity(
-            load_generation_recipe,
-            GenerationRecipeLoadInput(product=payload.product),
-            task_queue=TaskQueue.SKU_LIFECYCLE.value,
-            start_to_close_timeout=SHORT_ACTIVITY_TIMEOUT,
-            retry_policy=DB_RETRY_POLICY,
+            id=f"technical-dossier-{sources_signal.ingestion_run_id}",
+            task_queue=TaskQueue.PRODUCT_LIFECYCLE.value,
+            execution_timeout=LONG_ACTIVITY_TIMEOUT,
+            static_summary="Factory Writer technical dossier ingestion",
+            static_details=f"Technical dossier ingestion for SKU {canonical_product.sku}",
         )
 
-        self.state.signal_snapshot_id = signal_snapshot.signal_snapshot_id
-        self.state.style_pack_id = style_pack.style_pack_id
-        self.state.generation_recipe_id = generation_recipe.generation_recipe_id
+        self.state.technical_facts_ready = (
+            technical_result.status == WorkflowExecutionStatus.TECHNICAL_FACTS_READY
+        )
+        self.state.technical_ingestion_run_id = technical_result.ingestion_run_id
 
-        context_snapshot = ContextSnapshot(
-            product=payload.product,
-            facts=facts_result,
-            signals=signal_snapshot,
-            style_pack=style_pack,
-            generation_recipe=generation_recipe,
+        context_snapshot_id = await self._wait_and_create_context_snapshot(
+            canonical_product,
+            technical_result.ingestion_run_id,
         )
-
-        self.state.status = WorkflowExecutionStatus.GENERATING_COPY
-        claim_plan = await workflow.execute_activity(
-            generate_claim_plan,
-            GenerationStepInput(context_snapshot=context_snapshot),
-            task_queue=TaskQueue.SKU_LIFECYCLE.value,
-            start_to_close_timeout=MEDIUM_ACTIVITY_TIMEOUT,
-            retry_policy=LLM_RETRY_POLICY,
-        )
-        redaction_plan = await workflow.execute_activity(
-            generate_redaction_plan,
-            GenerationStepInput(
-                context_snapshot=context_snapshot,
-                upstream_artifact_id=claim_plan.artifact_id,
-            ),
-            task_queue=TaskQueue.SKU_LIFECYCLE.value,
-            start_to_close_timeout=MEDIUM_ACTIVITY_TIMEOUT,
-            retry_policy=LLM_RETRY_POLICY,
-        )
-        final_draft = await workflow.execute_activity(
-            generate_final_draft,
-            GenerationStepInput(
-                context_snapshot=context_snapshot,
-                upstream_artifact_id=redaction_plan.artifact_id,
-            ),
-            task_queue=TaskQueue.SKU_LIFECYCLE.value,
-            start_to_close_timeout=MEDIUM_ACTIVITY_TIMEOUT,
-            retry_policy=LLM_RETRY_POLICY,
-        )
-        review_artifact = await workflow.execute_activity(
-            review_and_rewrite,
-            GenerationStepInput(
-                context_snapshot=context_snapshot,
-                upstream_artifact_id=final_draft.artifact_id,
-            ),
-            task_queue=TaskQueue.SKU_LIFECYCLE.value,
-            start_to_close_timeout=MEDIUM_ACTIVITY_TIMEOUT,
-            retry_policy=LLM_RETRY_POLICY,
+        self.state.status = WorkflowExecutionStatus.CONTEXT_READY
+        self.state.product_context_snapshot_id = context_snapshot_id
+        return ProductLifecycleOutput(
+            status=self.state.status,
+            product_context_snapshot_id=context_snapshot_id,
         )
 
-        publish_gate = await workflow.execute_activity(
-            evaluate_publish_gate,
-            PublishGateInput(
-                context_snapshot=context_snapshot,
-                review_artifact=review_artifact,
-            ),
-            task_queue=TaskQueue.SKU_LIFECYCLE.value,
-            start_to_close_timeout=SHORT_ACTIVITY_TIMEOUT,
-            retry_policy=DB_RETRY_POLICY,
-        )
-        self.state.publication_decision = publish_gate.decision
-
-        if publish_gate.decision == PublicationDecision.READY_TO_PUBLISH:
-            publish_result = await workflow.execute_activity(
-                publish_generated_content,
-                PublishContentInput(
-                    context_snapshot=context_snapshot,
-                    review_artifact=review_artifact,
+    async def _wait_and_create_context_snapshot(
+        self,
+        product: ProductContextRef,
+        technical_ingestion_run_id: str,
+    ) -> str:
+        while True:
+            self.state.status = WorkflowExecutionStatus.BUILDING_CONTEXT
+            readiness = await workflow.execute_activity_method(
+                ProductLifecycleActivities.check_product_context_readiness,
+                ContextReadinessCheckInput(
+                    product=product,
+                    technical_ingestion_run_id=technical_ingestion_run_id,
                 ),
-                task_queue=TaskQueue.SKU_LIFECYCLE.value,
-                start_to_close_timeout=MEDIUM_ACTIVITY_TIMEOUT,
+                task_queue=TaskQueue.PRODUCT_LIFECYCLE.value,
+                start_to_close_timeout=SHORT_ACTIVITY_TIMEOUT,
                 retry_policy=DB_RETRY_POLICY,
             )
-            self.state.status = WorkflowExecutionStatus.PUBLISHED
-            self.state.published_content_id = publish_result.published_content_id
-            return SkuLifecycleOutput(
-                status=self.state.status,
-                publication_decision=publish_gate.decision,
-                published_content_id=publish_result.published_content_id,
-            )
+            if readiness.ready:
+                snapshot = await workflow.execute_activity_method(
+                    ProductLifecycleActivities.create_product_context_snapshot,
+                    CreateProductContextSnapshotInput(
+                        product=product,
+                        technical_ingestion_run_id=technical_ingestion_run_id,
+                        readiness=readiness,
+                    ),
+                    task_queue=TaskQueue.PRODUCT_LIFECYCLE.value,
+                    start_to_close_timeout=SHORT_ACTIVITY_TIMEOUT,
+                    retry_policy=DB_RETRY_POLICY,
+                )
+                self.state.style_pack_id = readiness.style_pack_id
+                self.state.commercial_signal_snapshot_id = readiness.commercial_signal_snapshot_id
+                return snapshot.product_context_snapshot_id
 
-        self.state.status = WorkflowExecutionStatus.PENDING_EDITOR_REVIEW
-        return SkuLifecycleOutput(
-            status=self.state.status,
-            publication_decision=publish_gate.decision,
-            published_content_id=None,
-        )
+            self.state.waiting_reason = ",".join(readiness.missing_prerequisites)
+            self.state.status = (
+                readiness.waiting_status or WorkflowExecutionStatus.WAITING_TECH_FACTS
+            )
+            event_count = self.state.readiness_event_count
+
+            def readiness_event_received(previous_count: int = event_count) -> bool:
+                return self.state.readiness_event_count > previous_count
+
+            with suppress(TimeoutError):
+                await workflow.wait_condition(
+                    readiness_event_received,
+                    timeout=_READINESS_RECHECK_INTERVAL,
+                )

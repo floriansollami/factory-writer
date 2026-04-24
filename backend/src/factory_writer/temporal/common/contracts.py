@@ -10,17 +10,16 @@ class TemporalPayloadModel(BaseModel):
 
 
 class WorkflowExecutionStatus(StrEnum):
-    WAITING_FOR_TECHNICAL_ARCHIVE = "waiting_for_technical_archive"
+    WAITING_TECHNICAL_SOURCES = "waiting_technical_sources"
+    WAITING_STYLE_PACK = "waiting_style_pack"
+    WAITING_COMMERCIAL_SNAPSHOT = "waiting_commercial_snapshot"
+    WAITING_TECH_FACTS = "waiting_tech_facts"
+    TECHNICAL_FACTS_READY = "technical_facts_ready"
     EXTRACTING_FACTS = "extracting_facts"
     BUILDING_CONTEXT = "building_context"
+    CONTEXT_READY = "context_ready"
+    PENDING_TECH_REVIEW = "pending_tech_review"
     GENERATING_COPY = "generating_copy"
-    WAITING_FOR_STYLE_APPROVAL = "waiting_for_style_approval"
-    RUNNING_OFFLINE_EVAL = "running_offline_eval"
     PENDING_EDITOR_REVIEW = "pending_editor_review"
     PUBLISHED = "published"
     FAILED = "failed"
-
-
-class PublicationDecision(StrEnum):
-    READY_TO_PUBLISH = "ready_to_publish"
-    PENDING_EDITOR_REVIEW = "pending_editor_review"
