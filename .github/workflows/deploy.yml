@@ -18,6 +18,7 @@ env:
   REGION: europe-west1
   ARTIFACT_REPOSITORY: cloud-run-source-deploy
   IMAGE_NAME: factory-writer
+  FRONTEND_IMAGE_NAME: factory-writer-frontend
   CLOUDSQL_INSTANCE: factory-writer-poc-1776097019:europe-west1:factory-writer-db
   TEMPORAL_ADDRESS: factory-writer-poc.waxwe.tmprl.cloud:7233
   TEMPORAL_NAMESPACE: factory-writer-poc.waxwe
@@ -28,8 +29,6 @@ env:
   GCP_DOCUMENT_AI_PROCESSOR_VERSION: pretrained-layout-parser-v1.5-2025-08-25
   GCP_STYLE_GUIDE_BUCKET_NAME: factory-writer-poc-1776097019-brand-styles
   LLM_STYLE_GUIDE_TIMEOUT_SECONDS: "90"
-  EVENTARC_STYLE_GUIDE_TRIGGER: factory-writer-style-guide-finalized
-  EVENTARC_TRIGGER_SERVICE_ACCOUNT: eventarc-style-trigger@factory-writer-poc-1776097019.iam.gserviceaccount.com
   RUNTIME_SERVICE_ACCOUNT: factory-writer-runtime@factory-writer-poc-1776097019.iam.gserviceaccount.com
 
 jobs:
@@ -62,6 +61,10 @@ jobs:
         working-directory: backend
         run: uv run ruff check src/factory_writer alembic tests
 
+      - name: Check backend formatting
+        working-directory: backend
+        run: uv run ruff format --check src/factory_writer alembic tests
+
       - name: Type-check backend
         working-directory: backend
         run: uv run mypy --explicit-package-bases src/factory_writer alembic tests
@@ -72,7 +75,34 @@ jobs:
 
       - name: Compile backend sources
         working-directory: backend
-        run: uv run python -m compileall src/factory_writer alembic
+        run: uv run python -m compileall -q src/factory_writer alembic tests
+
+      - name: Set up Node.js
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f
+        with:
+          node-version: "24.13.1"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Type-check frontend
+        working-directory: frontend
+        run: npm run typecheck
+
+      - name: Test frontend
+        working-directory: frontend
+        run: npm run test
+
+      - name: Install Playwright browser
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+
+      - name: Test frontend end-to-end
+        working-directory: frontend
+        run: npm run test:e2e
 
   build-and-push:
     runs-on: ubuntu-latest
@@ -205,7 +235,7 @@ jobs:
             --image="${{ needs.build-and-push.outputs.image }}" \
             --project="${PROJECT_ID}" \
             --region="${REGION}" \
-            --no-allow-unauthenticated \
+            --allow-unauthenticated \
             --service-account="${RUNTIME_SERVICE_ACCOUNT}" \
             --set-cloudsql-instances="${CLOUDSQL_INSTANCE}" \
             --set-env-vars="GCP__PROJECT_ID=${PROJECT_ID},GCP__LOCATION=${GCP_LOCATION},GCP__DOCUMENT_AI_LOCATION=${GCP_DOCUMENT_AI_LOCATION},GCP__DOCUMENT_AI_PROCESSOR_ID=${GCP_DOCUMENT_AI_PROCESSOR_ID},GCP__DOCUMENT_AI_PROCESSOR_VERSION=${GCP_DOCUMENT_AI_PROCESSOR_VERSION},GCP__STYLE_GUIDE_BUCKET_NAME=${GCP_STYLE_GUIDE_BUCKET_NAME},TEMPORAL__ADDRESS=${TEMPORAL_ADDRESS},TEMPORAL__NAMESPACE=${TEMPORAL_NAMESPACE},TEMPORAL__DEPLOYMENT_NAME=${TEMPORAL_DEPLOYMENT_NAME},LLM__STYLE_GUIDE_TIMEOUT_SECONDS=${LLM_STYLE_GUIDE_TIMEOUT_SECONDS}" \
@@ -213,32 +243,94 @@ jobs:
             --command=uvicorn \
             --args=factory_writer.main:app,--host,0.0.0.0,--port,8080
 
-      - name: Grant Eventarc invoker access to API
+      - name: Remove legacy Eventarc trigger
         run: |
-          gcloud run services add-iam-policy-binding factory-writer-api \
-            --project="${PROJECT_ID}" \
-            --region="${REGION}" \
-            --member="serviceAccount:${EVENTARC_TRIGGER_SERVICE_ACCOUNT}" \
-            --role="roles/run.invoker" \
-            --quiet
-
-      - name: Ensure Eventarc trigger for style guide uploads
-        run: |
-          if gcloud eventarc triggers describe "${EVENTARC_STYLE_GUIDE_TRIGGER}" \
+          if gcloud eventarc triggers describe factory-writer-style-guide-finalized \
             --project="${PROJECT_ID}" \
             --location="${REGION}" >/dev/null 2>&1; then
-            echo "Eventarc trigger ${EVENTARC_STYLE_GUIDE_TRIGGER} already exists."
-          else
-            gcloud eventarc triggers create "${EVENTARC_STYLE_GUIDE_TRIGGER}" \
+            gcloud eventarc triggers delete factory-writer-style-guide-finalized \
               --project="${PROJECT_ID}" \
               --location="${REGION}" \
-              --destination-run-service=factory-writer-api \
-              --destination-run-region="${REGION}" \
-              --destination-run-path=/webhooks/eventarc/style-guide \
-              --event-filters="type=google.cloud.storage.object.v1.finalized" \
-              --event-filters="bucket=${GCP_STYLE_GUIDE_BUCKET_NAME}" \
-              --service-account="${EVENTARC_TRIGGER_SERVICE_ACCOUNT}"
+              --quiet
           fi
+
+  build-and-push-frontend:
+    runs-on: ubuntu-latest
+    needs: [quality, deploy-api]
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      image: ${{ steps.meta.outputs.image }}
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+      - name: Compute frontend image metadata
+        id: meta
+        run: |
+          echo "image=${REGION}-docker.pkg.dev/${PROJECT_ID}/${ARTIFACT_REPOSITORY}/${FRONTEND_IMAGE_NAME}:${GITHUB_SHA}" >> "${GITHUB_OUTPUT}"
+
+      - name: Authenticate to Google Cloud (WIF)
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+          workload_identity_provider: projects/623736074911/locations/global/workloadIdentityPools/github-pool/providers/github-provider
+          service_account: github-actions-deployer@factory-writer-poc-1776097019.iam.gserviceaccount.com
+
+      - name: Setup Google Cloud SDK
+        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db
+        with:
+          install_components: beta
+
+      - name: Build and push frontend Docker image
+        run: |
+          gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+          API_URL="$(gcloud run services describe factory-writer-api \
+            --project="${PROJECT_ID}" \
+            --region="${REGION}" \
+            --format='value(status.url)')"
+          docker build \
+            --build-arg "VITE_API_BASE_URL=${API_URL}" \
+            --build-arg "VITE_USE_MSW=false" \
+            -t "${{ steps.meta.outputs.image }}" \
+            ./frontend
+          docker push "${{ steps.meta.outputs.image }}"
+
+  deploy-frontend:
+    runs-on: ubuntu-latest
+    needs: build-and-push-frontend
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Authenticate to Google Cloud (WIF)
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+          workload_identity_provider: projects/623736074911/locations/global/workloadIdentityPools/github-pool/providers/github-provider
+          service_account: github-actions-deployer@factory-writer-poc-1776097019.iam.gserviceaccount.com
+
+      - name: Setup Google Cloud SDK
+        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db
+        with:
+          install_components: beta
+
+      - name: Deploy frontend to Cloud Run
+        run: |
+          gcloud run deploy factory-writer-frontend \
+            --image="${{ needs.build-and-push-frontend.outputs.image }}" \
+            --project="${PROJECT_ID}" \
+            --region="${REGION}" \
+            --allow-unauthenticated \
+            --port=8080 \
+            --cpu=1 \
+            --memory=256Mi \
+            --max-instances=3
 
   deploy-workers:
     runs-on: ubuntu-latest
@@ -247,26 +339,9 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - role: style-guide-ingestion
-            worker_pool: factory-writer-style-guide-ingestion
-            instances: 1
-            enabled_poc: true
-          - role: sku-lifecycle
-            worker_pool: factory-writer-sku-lifecycle
-            instances: 1
-            enabled_poc: false
-          - role: offline-evaluation
-            worker_pool: factory-writer-offline-evaluation
-            instances: 0
-            enabled_poc: false
 
     steps:
       - name: Authenticate to Google Cloud (WIF)
-        if: ${{ matrix.enabled_poc }}
         uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093
         with:
           project_id: ${{ env.PROJECT_ID }}
@@ -274,22 +349,36 @@ jobs:
           service_account: github-actions-deployer@factory-writer-poc-1776097019.iam.gserviceaccount.com
 
       - name: Setup Google Cloud SDK
-        if: ${{ matrix.enabled_poc }}
         uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db
         with:
           install_components: beta
 
       - name: Deploy worker pool
-        if: ${{ matrix.enabled_poc }}
         run: |
-          gcloud beta run worker-pools deploy "${{ matrix.worker_pool }}" --quiet \
+          gcloud beta run worker-pools deploy factory-writer-style-guide-ingestion --quiet \
             --image="${{ needs.build-and-push.outputs.image }}" \
             --project="${PROJECT_ID}" \
             --region="${REGION}" \
-            --instances="${{ matrix.instances }}" \
+            --instances=1 \
             --service-account="${RUNTIME_SERVICE_ACCOUNT}" \
             --set-cloudsql-instances="${CLOUDSQL_INSTANCE}" \
-            --set-env-vars="GCP__PROJECT_ID=${PROJECT_ID},GCP__LOCATION=${GCP_LOCATION},GCP__DOCUMENT_AI_LOCATION=${GCP_DOCUMENT_AI_LOCATION},GCP__DOCUMENT_AI_PROCESSOR_ID=${GCP_DOCUMENT_AI_PROCESSOR_ID},GCP__DOCUMENT_AI_PROCESSOR_VERSION=${GCP_DOCUMENT_AI_PROCESSOR_VERSION},GCP__STYLE_GUIDE_BUCKET_NAME=${GCP_STYLE_GUIDE_BUCKET_NAME},TEMPORAL__ADDRESS=${TEMPORAL_ADDRESS},TEMPORAL__NAMESPACE=${TEMPORAL_NAMESPACE},TEMPORAL__DEPLOYMENT_NAME=${TEMPORAL_DEPLOYMENT_NAME},TEMPORAL__WORKER_ROLE=${{ matrix.role }},LLM__STYLE_GUIDE_TIMEOUT_SECONDS=${LLM_STYLE_GUIDE_TIMEOUT_SECONDS}" \
+            --set-env-vars="GCP__PROJECT_ID=${PROJECT_ID},GCP__LOCATION=${GCP_LOCATION},GCP__DOCUMENT_AI_LOCATION=${GCP_DOCUMENT_AI_LOCATION},GCP__DOCUMENT_AI_PROCESSOR_ID=${GCP_DOCUMENT_AI_PROCESSOR_ID},GCP__DOCUMENT_AI_PROCESSOR_VERSION=${GCP_DOCUMENT_AI_PROCESSOR_VERSION},GCP__STYLE_GUIDE_BUCKET_NAME=${GCP_STYLE_GUIDE_BUCKET_NAME},TEMPORAL__ADDRESS=${TEMPORAL_ADDRESS},TEMPORAL__NAMESPACE=${TEMPORAL_NAMESPACE},TEMPORAL__DEPLOYMENT_NAME=${TEMPORAL_DEPLOYMENT_NAME},TEMPORAL__WORKER_ROLE=style-guide-ingestion,LLM__STYLE_GUIDE_TIMEOUT_SECONDS=${LLM_STYLE_GUIDE_TIMEOUT_SECONDS}" \
             --set-secrets="TEMPORAL__API_KEY=temporal-api-key:latest,DB__URL=db-url:latest" \
             --command=python \
             --args=-m,factory_writer.temporal.worker
+
+      - name: Remove unused worker pools for the POC
+        run: |
+          for worker_pool in \
+            factory-writer-style-admin \
+            factory-writer-sku-lifecycle
+          do
+            if gcloud beta run worker-pools describe "${worker_pool}" \
+              --project="${PROJECT_ID}" \
+              --region="${REGION}" >/dev/null 2>&1; then
+              gcloud beta run worker-pools delete "${worker_pool}" \
+                --project="${PROJECT_ID}" \
+                --region="${REGION}" \
+                --quiet
+            fi
+          done

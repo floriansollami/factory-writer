@@ -28,7 +28,7 @@ def setup_logging() -> None:
 
     # Rendu dynamique (DEBUG = Console humaine claire, PROD = JSON pur Machine)
     renderer: Any = (
-        structlog.dev.ConsoleRenderer(colors=True)
+        structlog.dev.ConsoleRenderer(colors=sys.stdout.isatty())
         if settings.debug
         else structlog.processors.JSONRenderer()
     )

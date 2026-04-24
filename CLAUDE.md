@@ -790,7 +790,7 @@ Parce que :
 - `normaliser_facts`
 - `valider_facts_critiques`
 - `charger_snapshot_signaux`
-- `charger_pack_style`
+- `charger_style_pack`
 - `construire_context_snapshot`
 - `generer_claim_plan`
 - `valider_claim_plan`
