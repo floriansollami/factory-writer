@@ -1,0 +1,54 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Manrope", sans-serif;
+  --font-serif: "Newsreader", serif;
+}
+
+:root {
+  --color-ivory: #fbf9f5;
+  --color-surface-card: #fffdf8;
+  --color-surface-raised: #efeeea;
+  --color-sage-soft: #dce9de;
+  --color-gold-soft: #f6e5c6;
+  --color-gold: #d4b374;
+  --color-stone: #e7e3da;
+  --color-forest: #173124;
+  --color-leaf: #2d4739;
+  --color-teak: #8d4d32;
+  --color-ink: #1b1c1a;
+  --color-muted: #68716a;
+  --color-error: #9f2727;
+  --color-error-soft: #f5d8d2;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  background:
+    radial-gradient(circle at 8% 0%, rgba(176, 205, 187, 0.34), transparent 28rem),
+    radial-gradient(circle at 85% 15%, rgba(212, 179, 116, 0.22), transparent 24rem),
+    var(--color-ivory);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: var(--color-sage-soft);
+  color: var(--color-forest);
+}
+
+button,
+a,
+input,
+select,
+textarea {
+  font: inherit;
+}
