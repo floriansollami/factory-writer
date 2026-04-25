@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import structlog
 from temporalio.client import Client
 from temporalio.common import WorkflowIDConflictPolicy
 
@@ -25,6 +26,8 @@ from factory_writer.temporal.technical_dossier_ingestion.workflow import (
     TechnicalDossierIngestionWorkflow,
 )
 
+logger = structlog.get_logger(__name__)
+
 
 class TemporalProductLifecycleWorkflowStarter:
     def __init__(self, temporal_client: Client):
@@ -33,6 +36,14 @@ class TemporalProductLifecycleWorkflowStarter:
     async def start_product_lifecycle(self, product: ProductContextReference) -> str:
         workflow_id = _product_workflow_id(product.sku)
         try:
+            logger.info(
+                "Product lifecycle | Temporal | démarrage workflow",
+                product_id=product.product_id,
+                sku=product.sku,
+                workflow_id=workflow_id,
+                task_queue=TaskQueue.PRODUCT_LIFECYCLE.value,
+            )
+
             await self._client.start_workflow(
                 ProductLifecycleWorkflow.run,
                 ProductLifecycleInput(product=_to_temporal_product_ref(product)),
@@ -42,8 +53,24 @@ class TemporalProductLifecycleWorkflowStarter:
                 static_summary="Factory Writer product lifecycle",
                 static_details=f"Lifecycle orchestration for SKU {product.sku}",
             )
+
+            logger.info(
+                "Product lifecycle | Temporal | workflow démarré ou réutilisé",
+                product_id=product.product_id,
+                sku=product.sku,
+                workflow_id=workflow_id,
+                task_queue=TaskQueue.PRODUCT_LIFECYCLE.value,
+            )
+
             return workflow_id
         except Exception as exc:
+            logger.exception(
+                "Product lifecycle | Temporal | échec démarrage workflow",
+                product_id=product.product_id,
+                sku=product.sku,
+                workflow_id=workflow_id,
+                task_queue=TaskQueue.PRODUCT_LIFECYCLE.value,
+            )
             raise RuntimeError(
                 f"Impossible de démarrer le workflow Temporal Product Lifecycle: {str(exc)}"
             ) from exc
@@ -53,13 +80,35 @@ class TemporalProductLifecycleWorkflowStarter:
         sku: str,
         payload: TechnicalSourcesUploaded,
     ) -> None:
+        workflow_id = _product_workflow_id(sku)
         try:
-            handle = self._client.get_workflow_handle(_product_workflow_id(sku))
+            logger.info(
+                "Product lifecycle | Temporal | signal PDFs techniques",
+                sku=sku,
+                workflow_id=workflow_id,
+                ingestion_run_id=payload.ingestion_run_id,
+                document_source_ids=payload.document_source_ids,
+            )
+
+            handle = self._client.get_workflow_handle(workflow_id)
             await handle.signal(
                 ProductLifecycleWorkflow.technical_sources_uploaded,
                 _to_temporal_sources_uploaded_signal(payload),
             )
+
+            logger.info(
+                "Product lifecycle | Temporal | signal PDFs techniques envoyé",
+                sku=sku,
+                workflow_id=workflow_id,
+                ingestion_run_id=payload.ingestion_run_id,
+            )
         except Exception as exc:
+            logger.exception(
+                "Product lifecycle | Temporal | échec signal PDFs techniques",
+                sku=sku,
+                workflow_id=workflow_id,
+                ingestion_run_id=payload.ingestion_run_id,
+            )
             raise RuntimeError(
                 f"Impossible d'envoyer le signal au workflow produit: {str(exc)}"
             ) from exc

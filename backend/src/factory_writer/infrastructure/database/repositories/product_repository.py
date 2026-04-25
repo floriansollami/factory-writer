@@ -14,6 +14,7 @@ from factory_writer.application.ports.product_technical_ingestion import (
     IngestionRunSnapshot,
     ProductContextSnapshotResult,
     ProductSnapshot,
+    ProductTaxonomySnapshot,
     PromotedTechnicalFactInput,
     StylePackRuntimeSnapshot,
     TechnicalFactCandidateInput,
@@ -67,13 +68,24 @@ class ProductRepository:
         langue_principale: str,
     ) -> ProductSnapshot:
         async with self._session_factory() as session, session.begin():
-            taxonomy = await self._get_or_create_taxonomy(session, famille_code)
+            existing_product = await session.scalar(select(Product).where(Product.sku == sku))
+
+            if existing_product is not None:
+                raise RuntimeError(f"Un produit existe déjà avec le SKU {sku}.")
+
+            taxonomy = await self._resolve_product_taxonomy(
+                session,
+                famille_code=famille_code,
+                sous_famille_code=sous_famille_code,
+            )
             product = Product(
                 sku=sku,
                 name=name,
                 taxonomie_produit_id=taxonomy.id,
                 taxonomie_produit=taxonomy,
-                sous_famille_code=sous_famille_code,
+                sous_famille_code=(
+                    taxonomy.famille_code if taxonomy.parent_id is not None else None
+                ),
                 season_code=season_code,
                 segment_prix_code=segment_prix_code,
                 langue_principale=langue_principale,
@@ -86,6 +98,31 @@ class ProductRepository:
         async with self._session_factory() as session:
             product = await self._get_product(session, product_id)
             return self._to_product_snapshot(product) if product is not None else None
+
+    async def list_products(self, *, limit: int = 50) -> tuple[ProductSnapshot, ...]:
+        async with self._session_factory() as session:
+            stmt = (
+                select(Product)
+                .options(_product_taxonomy_load_option())
+                .order_by(Product.created_at.desc())
+                .limit(limit)
+            )
+
+            products = list((await session.scalars(stmt)).all())
+
+            return tuple(self._to_product_snapshot(product) for product in products)
+
+    async def list_product_taxonomies(self) -> tuple[ProductTaxonomySnapshot, ...]:
+        async with self._session_factory() as session:
+            stmt = select(TaxonomieProduit).order_by(
+                TaxonomieProduit.parent_id.asc().nullsfirst(),
+                TaxonomieProduit.libelle_fr.asc(),
+                TaxonomieProduit.famille_code.asc(),
+            )
+
+            taxonomies = list((await session.scalars(stmt)).all())
+
+            return tuple(self._to_product_taxonomy_snapshot(taxonomy) for taxonomy in taxonomies)
 
     async def create_technical_sources(
         self,
@@ -573,7 +610,7 @@ class ProductRepository:
                 (
                     await session.scalars(
                         select(Product)
-                        .options(selectinload(Product.taxonomie_produit))
+                        .options(_product_taxonomy_load_option())
                         .order_by(Product.created_at.desc())
                         .limit(max_results)
                     )
@@ -759,18 +796,45 @@ class ProductRepository:
                 ),
             }
 
-    async def _get_or_create_taxonomy(
+    async def _resolve_product_taxonomy(
         self,
         session: AsyncSession,
+        *,
         famille_code: str,
+        sous_famille_code: str | None,
     ) -> TaxonomieProduit:
-        stmt = select(TaxonomieProduit).where(TaxonomieProduit.famille_code == famille_code)
+        family = await self._require_taxonomy_by_code(session, famille_code)
+
+        if family.parent_id is not None:
+            raise RuntimeError(f"{famille_code} est une sous-famille, pas une famille produit.")
+
+        if sous_famille_code is None or sous_famille_code == famille_code:
+            return family
+
+        subfamily = await self._require_taxonomy_by_code(session, sous_famille_code)
+
+        if subfamily.parent_id is None or subfamily.parent_id != family.id:
+            raise RuntimeError(
+                f"La sous-famille {sous_famille_code} n'appartient pas à la famille {famille_code}."
+            )
+
+        return subfamily
+
+    async def _require_taxonomy_by_code(
+        self,
+        session: AsyncSession,
+        code: str,
+    ) -> TaxonomieProduit:
+        stmt = (
+            select(TaxonomieProduit)
+            .where(TaxonomieProduit.famille_code == code)
+            .options(selectinload(TaxonomieProduit.parent))
+        )
         taxonomy = (await session.scalars(stmt)).first()
-        if taxonomy is not None:
-            return taxonomy
-        taxonomy = TaxonomieProduit(famille_code=famille_code, libelle_fr=famille_code)
-        session.add(taxonomy)
-        await session.flush()
+
+        if taxonomy is None:
+            raise RuntimeError(f"Taxonomie produit inconnue: {code}.")
+
         return taxonomy
 
     async def _get_product(
@@ -781,9 +845,7 @@ class ProductRepository:
         for_update: bool = False,
     ) -> Product | None:
         stmt = (
-            select(Product)
-            .where(Product.id == product_id)
-            .options(selectinload(Product.taxonomie_produit))
+            select(Product).where(Product.id == product_id).options(_product_taxonomy_load_option())
         )
         if for_update:
             stmt = stmt.with_for_update()
@@ -891,15 +953,36 @@ class ProductRepository:
         return collection
 
     def _to_product_snapshot(self, product: Product) -> ProductSnapshot:
+        taxonomy = product.taxonomie_produit
+        parent_taxonomy = taxonomy.parent
+        famille_code = (
+            parent_taxonomy.famille_code if parent_taxonomy is not None else taxonomy.famille_code
+        )
+        sous_famille_code = (
+            taxonomy.famille_code if parent_taxonomy is not None else product.sous_famille_code
+        )
+
         return ProductSnapshot(
             id=product.id,
             sku=product.sku,
             name=product.name,
-            famille_code=product.taxonomie_produit.famille_code,
-            sous_famille_code=product.sous_famille_code,
+            famille_code=famille_code,
+            sous_famille_code=sous_famille_code,
             season_code=product.season_code,
             segment_prix_code=product.segment_prix_code,
             langue_principale=product.langue_principale,
+            created_at=product.created_at,
+        )
+
+    def _to_product_taxonomy_snapshot(
+        self,
+        taxonomy: TaxonomieProduit,
+    ) -> ProductTaxonomySnapshot:
+        return ProductTaxonomySnapshot(
+            id=taxonomy.id,
+            code=taxonomy.famille_code,
+            libelle_fr=taxonomy.libelle_fr,
+            parent_id=taxonomy.parent_id,
         )
 
     def _to_source_snapshot(self, source: DocumentSource) -> DocumentSourceSnapshot:
@@ -944,6 +1027,10 @@ def _choose_commercial_snapshot(
         if snapshot.season_code == product.season_code:
             return snapshot, "matched_family_season"
     return snapshots[0], "matched_family_only"
+
+
+def _product_taxonomy_load_option() -> Any:
+    return selectinload(Product.taxonomie_produit).selectinload(TaxonomieProduit.parent)
 
 
 def _to_document_type(value: str) -> DocumentType:

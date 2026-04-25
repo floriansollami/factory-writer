@@ -48,14 +48,16 @@ class TechnicalDossierActivities:
     ) -> PrepareTechnicalIngestionResult:
         logger.info(
             "Technical dossier | run preparation",
-            product_id=payload.product.product_id,
+            product_id=payload.product_id,
             ingestion_run_id=payload.ingestion_run_id,
         )
+
         result = await self._service.prepare_technical_ingestion_run(
-            product=_to_app_product_ref(payload.product),
+            product_id=payload.product_id,
             ingestion_run_id=payload.ingestion_run_id,
             document_source_ids=payload.document_source_ids,
         )
+
         return PrepareTechnicalIngestionResult(
             product=_to_temporal_product_ref(result.product),
             ingestion_run_id=result.ingestion_run_id,
@@ -69,10 +71,11 @@ class TechnicalDossierActivities:
         payload: ClassifyTechnicalSourcesInput,
     ) -> ClassifyTechnicalSourcesResult:
         logger.info("Technical dossier | classification started", source_count=len(payload.sources))
-        activity.heartbeat("classification_started")
+
         result = await self._service.classify_technical_sources(
             tuple(_to_app_source_ref(source) for source in payload.sources)
         )
+
         return ClassifyTechnicalSourcesResult(
             classifications=tuple(
                 _to_temporal_classification(classification)
@@ -90,12 +93,14 @@ class TechnicalDossierActivities:
             ingestion_run_id=payload.ingestion_run_id,
             classification_count=len(payload.classifications),
         )
+
         result = await self._service.persist_classification_results(
             ingestion_run_id=payload.ingestion_run_id,
             classifications=tuple(
                 _to_app_classification(classification) for classification in payload.classifications
             ),
         )
+
         return PersistClassificationResult(classification_count=result.classification_count)
 
     @activity.defn
@@ -104,7 +109,6 @@ class TechnicalDossierActivities:
         payload: ExtractTechnicalFactCandidatesInput,
     ) -> ExtractTechnicalFactCandidatesResult:
         logger.info("Technical dossier | extraction started", source_count=len(payload.sources))
-        activity.heartbeat("extraction_started")
         result = await self._service.extract_technical_fact_candidates(
             sources=tuple(_to_app_source_ref(source) for source in payload.sources),
             classifications=tuple(

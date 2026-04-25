@@ -35,11 +35,7 @@ from .repository import (
     StyleGuideRepositoryPort,
     StyleGuideRuleSnapshot,
 )
-from .storage import (
-    StyleGuideDocumentSourceFile,
-    StyleGuideStoragePort,
-    UploadedStyleGuideDocumentSourceFile,
-)
+from .storage import StyleGuideStoragePort
 from .workflow_controller import StyleGuideWorkflowControllerPort
 from .workflow_starter import StyleGuideIngestionInput, StyleGuideWorkflowStarterPort
 
@@ -71,9 +67,7 @@ __all__ = [
     "StyleGuideTaxonomySnapshot",
     "DraftStyleRuleV1",
     "DraftStylePackExtractionV1",
-    "StyleGuideDocumentSourceFile",
     "StyleGuideStoragePort",
-    "UploadedStyleGuideDocumentSourceFile",
     "StyleGuideWorkflowStarterPort",
     "StyleGuideWorkflowControllerPort",
 ]

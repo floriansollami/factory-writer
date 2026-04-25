@@ -592,7 +592,11 @@ class StyleGuideRepository:
 
     async def list_taxonomies(self) -> list[StyleGuideTaxonomySnapshot]:
         async with self._session_factory() as session:
-            stmt = select(TaxonomieProduit).order_by(TaxonomieProduit.famille_code)
+            stmt = (
+                select(TaxonomieProduit)
+                .where(TaxonomieProduit.parent_id.is_(None))
+                .order_by(TaxonomieProduit.famille_code)
+            )
             taxonomies = list((await session.scalars(stmt)).all())
             return [
                 StyleGuideTaxonomySnapshot(
@@ -936,7 +940,8 @@ class StyleGuideRepository:
         self,
         session: AsyncSession,
     ) -> dict[str, uuid.UUID]:
-        taxonomies = list((await session.scalars(select(TaxonomieProduit))).all())
+        stmt = select(TaxonomieProduit).where(TaxonomieProduit.parent_id.is_(None))
+        taxonomies = list((await session.scalars(stmt)).all())
         return {taxonomy.famille_code: taxonomy.id for taxonomy in taxonomies}
 
     async def _get_latest_pack_by_status(

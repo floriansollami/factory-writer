@@ -28,6 +28,7 @@ from factory_writer.application.ports.product_technical_ingestion import (
     ProductContextReference,
     ProductLifecycleWorkflowPort,
     ProductSnapshot,
+    ProductTaxonomySnapshot,
     ProductTechnicalRepositoryPort,
     PromotedTechnicalFactInput,
     PromotedTechnicalFactPayload,
@@ -45,6 +46,9 @@ from factory_writer.application.ports.product_technical_ingestion import (
     TechnicalSourcesUploaded,
     UploadedTechnicalSourceData,
     ValidateTechnicalFactsResult,
+)
+from factory_writer.application.services.document_storage_paths import (
+    build_technical_dossier_pdf_object_name,
 )
 from factory_writer.core.config import Settings
 from factory_writer.domain.document_ingestion_types import (
@@ -116,13 +120,13 @@ class ProductTechnicalIngestionService:
         repository: ProductTechnicalRepositoryPort,
         storage: TechnicalSourceStoragePort | None = None,
         workflow_starter: ProductLifecycleWorkflowPort | None = None,
-        document_ai: TechnicalDocumentProcessorPort | None = None,
+        document_processor: TechnicalDocumentProcessorPort | None = None,
     ) -> None:
         self._settings = settings
         self._repository = repository
         self._storage = storage
         self._workflow_starter = workflow_starter
-        self._document_ai = document_ai
+        self._document_processor = document_processor
 
     async def create_product(
         self,
@@ -135,6 +139,16 @@ class ProductTechnicalIngestionService:
         segment_prix_code: str | None,
         langue_principale: str,
     ) -> dict[str, Any]:
+        logger.info(
+            "Product | Création | demande reçue",
+            sku=sku,
+            name=name,
+            famille_code=famille_code,
+            sous_famille_code=sous_famille_code,
+            season_code=season_code,
+            segment_prix_code=segment_prix_code,
+        )
+
         product = await self._repository.create_product(
             sku=sku,
             name=name,
@@ -145,16 +159,74 @@ class ProductTechnicalIngestionService:
             langue_principale=langue_principale,
         )
 
+        logger.info(
+            "Product | Création | produit créé en base",
+            product_id=str(product.id),
+            sku=product.sku,
+            famille_code=product.famille_code,
+            sous_famille_code=product.sous_famille_code,
+            season_code=product.season_code,
+            segment_prix_code=product.segment_prix_code,
+        )
+
         workflow_id: str | None = None
 
         if self._workflow_starter is not None:
+            logger.info(
+                "Product lifecycle | démarrage du workflow demandé",
+                product_id=str(product.id),
+                sku=product.sku,
+            )
+
             workflow_id = await self._workflow_starter.start_product_lifecycle(
                 _product_to_context_reference(product)
+            )
+
+            logger.info(
+                "Product lifecycle | workflow lancé",
+                product_id=str(product.id),
+                sku=product.sku,
+                workflow_id=workflow_id,
+            )
+        else:
+            logger.info(
+                "Product lifecycle | workflow non démarré",
+                product_id=str(product.id),
+                sku=product.sku,
+                reason="workflow_starter_non_configure",
             )
 
         return {
             "product": _product_snapshot_to_dict(product),
             "workflow_id": workflow_id,
+        }
+
+    async def list_products(self, *, limit: int = 50) -> dict[str, Any]:
+        products = await self._repository.list_products(limit=limit)
+        style_guide_ready = await self._is_style_guide_ready()
+        commercial_signals_ready_by_product_id: dict[uuid.UUID, bool] = {}
+
+        for product in products:
+            commercial_signals_ready_by_product_id[
+                product.id
+            ] = await self._has_commercial_signal_snapshot(product)
+
+        return {
+            "products": [
+                _product_snapshot_to_list_item(
+                    product,
+                    style_guide_ready=style_guide_ready,
+                    commercial_signals_ready=commercial_signals_ready_by_product_id[product.id],
+                )
+                for product in products
+            ],
+        }
+
+    async def list_product_taxonomies(self) -> dict[str, Any]:
+        taxonomies = await self._repository.list_product_taxonomies()
+
+        return {
+            "taxonomies": [_product_taxonomy_to_dict(taxonomy) for taxonomy in taxonomies],
         }
 
     async def upload_technical_sources(
@@ -169,6 +241,11 @@ class ProductTechnicalIngestionService:
         if not files:
             raise RuntimeError("Au moins un PDF technique est requis.")
 
+        bucket_name = self._settings.gcp.technical_dossier_bucket_name
+
+        if not bucket_name:
+            raise RuntimeError("GCP technical dossier bucket non configuré.")
+
         uploaded_sources: list[UploadedTechnicalSourceData] = []
 
         for file_name, content, content_type in files:
@@ -177,10 +254,15 @@ class ProductTechnicalIngestionService:
 
             document_source_id = uuid.uuid4()
 
-            uploaded = await self._storage.upload_technical_document_source_pdf(
+            object_name = build_technical_dossier_pdf_object_name(
                 product_id=product_id,
                 document_source_id=document_source_id,
                 file_name=file_name,
+            )
+
+            uploaded = await self._storage.upload_pdf_object(
+                bucket_name=bucket_name,
+                object_name=object_name,
                 content=content,
                 content_type=content_type,
             )
@@ -288,21 +370,18 @@ class ProductTechnicalIngestionService:
     async def prepare_technical_ingestion_run(
         self,
         *,
-        product: ProductContextReference,
+        product_id: str,
         ingestion_run_id: str,
         document_source_ids: tuple[str, ...],
     ) -> PrepareTechnicalIngestionResult:
-        if product.product_id is None:
-            raise RuntimeError("product_id est requis pour préparer l'ingestion technique.")
-
-        product_id = uuid.UUID(product.product_id)
+        parsed_product_id = uuid.UUID(product_id)
 
         source_ids = tuple(uuid.UUID(value) for value in document_source_ids)
 
         run_id = uuid.UUID(ingestion_run_id)
 
         context = await self._repository.get_technical_ingestion_context(
-            product_id=product_id,
+            product_id=parsed_product_id,
             document_source_ids=source_ids,
             ingestion_run_id=run_id,
         )
@@ -316,7 +395,7 @@ class ProductTechnicalIngestionService:
         )
 
         return PrepareTechnicalIngestionResult(
-            product=product,
+            product=_product_to_context_reference(context["product"]),
             ingestion_run_id=str(run.id),
             collection_id=str(run.collection_id),
             sources=tuple(_source_snapshot_to_ref(source) for source in context["sources"]),
@@ -326,13 +405,13 @@ class ProductTechnicalIngestionService:
         self,
         sources: tuple[TechnicalDocumentSourceReference, ...],
     ) -> ClassifyTechnicalSourcesResult:
-        if self._document_ai is None:
+        if self._document_processor is None:
             raise RuntimeError("Document AI client non configuré pour l'ingestion technique.")
 
         classifications: list[TechnicalClassificationPayload] = []
 
         for source in sources:
-            classification = await self._document_ai.classify_technical_document(
+            classification = await self._document_processor.classify_technical_document(
                 input_uri=source.storage_uri,
                 mime_type=source.mime_type,
             )
@@ -390,7 +469,7 @@ class ProductTechnicalIngestionService:
         sources: tuple[TechnicalDocumentSourceReference, ...],
         classifications: tuple[TechnicalClassificationPayload, ...],
     ) -> ExtractTechnicalFactCandidatesResult:
-        if self._document_ai is None:
+        if self._document_processor is None:
             raise RuntimeError("Document AI client non configuré pour l'ingestion technique.")
 
         classifications_by_source_id = {
@@ -413,7 +492,7 @@ class ProductTechnicalIngestionService:
                     f"Classification manquante pour la source {source.document_source_id}."
                 )
 
-            extraction = await self._document_ai.extract_technical_facts(
+            extraction = await self._document_processor.extract_technical_facts(
                 input_uri=source.storage_uri,
                 document_type=classification.document_type,
                 mime_type=source.mime_type,
@@ -742,6 +821,22 @@ class ProductTechnicalIngestionService:
                 )
 
         return notified
+
+    async def _is_style_guide_ready(self) -> bool:
+        try:
+            await self._repository.load_active_style_pack()
+        except RuntimeError:
+            return False
+
+        return True
+
+    async def _has_commercial_signal_snapshot(self, product: ProductSnapshot) -> bool:
+        try:
+            await self._repository.select_commercial_signal_snapshot(product=product)
+        except RuntimeError:
+            return False
+
+        return True
 
 
 @dataclass(frozen=True)
@@ -1181,6 +1276,37 @@ def _product_snapshot_to_dict(product: ProductSnapshot) -> dict[str, Any]:
         "season_code": product.season_code,
         "segment_prix_code": product.segment_prix_code,
         "langue_principale": product.langue_principale,
+    }
+
+
+def _product_snapshot_to_list_item(
+    product: ProductSnapshot,
+    *,
+    style_guide_ready: bool,
+    commercial_signals_ready: bool,
+) -> dict[str, Any]:
+    return {
+        "id": str(product.id),
+        "sku": product.sku,
+        "name": product.name,
+        "familleCode": product.famille_code,
+        "sousFamilleCode": product.sous_famille_code,
+        "seasonCode": product.season_code,
+        "segmentPrixCode": product.segment_prix_code,
+        "languePrincipale": product.langue_principale,
+        "readinessStatus": "PRODUCT_CREATED",
+        "styleGuideReady": style_guide_ready,
+        "commercialSignalsReady": commercial_signals_ready,
+        "createdAt": product.created_at.isoformat() if product.created_at is not None else None,
+    }
+
+
+def _product_taxonomy_to_dict(taxonomy: ProductTaxonomySnapshot) -> dict[str, Any]:
+    return {
+        "id": str(taxonomy.id),
+        "code": taxonomy.code,
+        "libelleFr": taxonomy.libelle_fr,
+        "parentId": str(taxonomy.parent_id) if taxonomy.parent_id is not None else None,
     }
 
 

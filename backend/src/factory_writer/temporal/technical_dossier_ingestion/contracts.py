@@ -37,7 +37,7 @@ class TechnicalDossierIngestionOutput(TemporalPayloadModel):
 
 
 class PrepareTechnicalIngestionInput(TemporalPayloadModel):
-    product: ProductContextRef
+    product_id: str
     ingestion_run_id: str
     document_source_ids: tuple[str, ...]
 
