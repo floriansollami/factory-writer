@@ -1,5 +1,6 @@
 import uuid
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Protocol
 
 from factory_writer.domain.document_ingestion_types import (
@@ -23,6 +24,15 @@ class ProductSnapshot:
     season_code: str | None
     segment_prix_code: str | None
     langue_principale: str
+    created_at: datetime | None = None
+
+
+@dataclass(frozen=True)
+class ProductTaxonomySnapshot:
+    id: uuid.UUID
+    code: str
+    libelle_fr: str
+    parent_id: uuid.UUID | None
 
 
 @dataclass(frozen=True)
@@ -165,6 +175,10 @@ class ProductTechnicalRepositoryPort(Protocol):
     ) -> ProductSnapshot: ...
 
     async def get_product(self, product_id: uuid.UUID) -> ProductSnapshot | None: ...
+
+    async def list_products(self, *, limit: int = 50) -> tuple[ProductSnapshot, ...]: ...
+
+    async def list_product_taxonomies(self) -> tuple[ProductTaxonomySnapshot, ...]: ...
 
     async def create_technical_sources(
         self,

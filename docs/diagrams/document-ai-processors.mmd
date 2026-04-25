@@ -1,0 +1,78 @@
+%%{init: {"theme": "base", "themeVariables": {"fontFamily": "Arial", "primaryColor": "#F7F3EA", "primaryTextColor": "#1F1A14", "primaryBorderColor": "#C9BFA8", "lineColor": "#6F6558", "secondaryColor": "#F7F3EA", "tertiaryColor": "#F3F0E8"}}}%%
+flowchart TD
+  A["Google Document AI"] --> B["Catalogue de types de processors"]
+
+  subgraph CUSTOM["1. Custom"]
+    direction TD
+    C0["Créer un processor adapté au besoin métier"]
+    C0 --> C1["Custom Classifier<br/>Classer les documents par catégorie"]
+    C0 --> C2["Custom Extractor<br/>Extraire des champs métier"]
+    C0 --> C3["Custom Splitter<br/>Découper un gros fichier en documents"]
+    C0 --> C4["Summarizer<br/>Résumer des documents"]
+  end
+
+  subgraph GENERAL["2. General"]
+    direction TD
+    G0["Processors prêts à l'emploi pour documents génériques"]
+    G0 --> G1["Document OCR<br/>Texte, pages, blocs, paragraphes"]
+    G0 --> G2["Form Parser<br/>Champs de formulaire et cases"]
+    G0 --> G3["Layout Parser<br/>Structure, layout et chunks"]
+  end
+
+  subgraph SPECIALIZED["3. Specialized"]
+    direction TD
+    S0["Processors prêts à l'emploi par domaine"]
+    S0 --> S1["Invoice, Expense, Bank Statement"]
+    S0 --> S2["Pay Slip, W2, W9"]
+    S0 --> S3["ID, Passport, Driver License"]
+    S0 --> S4["Utility, Lending, Procurement"]
+  end
+
+  B --> CUSTOM
+  B --> GENERAL
+  B --> SPECIALIZED
+
+  CUSTOM --> P0["Instance de processor<br/><i>processor_id</i> dans un projet et une région"]
+  GENERAL --> P0
+  SPECIALIZED --> P0
+
+  P0 --> V0["Versions du processor"]
+  V0 --> V1["Google Stable<br/>version production"]
+  V0 --> V2["Google RC<br/>version candidate"]
+  V0 --> V3["Version customisée<br/>fine-tuned ou modèle custom"]
+
+  V0 --> R0["Choix au runtime"]
+  R0 --> R1["Sans version explicite<br/>utilise la version par défaut"]
+  R0 --> R2["Version pinée<br/>résultat plus reproductible"]
+  R0 --> R3["Canal stable ou rc<br/>suit le canal Google"]
+
+  R0 --> M0["Mode de traitement"]
+  M0 --> M1["Online processing<br/>réponse directe"]
+  M0 --> M2["Batch processing<br/>opération longue + sortie GCS"]
+
+  M0 --> O0["Sortie Document AI"]
+  O0 --> O1["Texte complet"]
+  O0 --> O2["Pages, blocs, layout"]
+  O0 --> O3["Entities extraites"]
+  O0 --> O4["Confidence + provenance"]
+
+  O0 --> FW0["Usage POC Factory Writer"]
+  FW0 --> FW1["Guides de style<br/>Layout Parser puis extraction des règles"]
+  FW0 --> FW2["Dossiers techniques<br/>Custom Classifier puis Custom Extractor foundation model"]
+  FW2 --> FW3["Validation déterministe<br/>dimensions, matériaux, certifications, preuves"]
+
+  classDef root fill:#F7F3EA,stroke:#8A7B66,stroke-width:2px,color:#1F1A14;
+  classDef custom fill:#FCE7F3,stroke:#BE185D,stroke-width:1.5px,color:#831843;
+  classDef general fill:#ECFDF5,stroke:#047857,stroke-width:1.5px,color:#064E3B;
+  classDef specialized fill:#FFF7ED,stroke:#C2410C,stroke-width:1.5px,color:#7C2D12;
+  classDef runtime fill:#FEF3C7,stroke:#B45309,stroke-width:1.5px,color:#78350F;
+  classDef output fill:#F4F1EA,stroke:#756B5D,stroke-width:1.5px,color:#2D241C;
+  classDef poc fill:#EAF4F2,stroke:#0F766E,stroke-width:2px,color:#134E4A;
+
+  class A,B,P0,V0 root;
+  class C0,C1,C2,C3,C4 custom;
+  class G0,G1,G2,G3 general;
+  class S0,S1,S2,S3,S4 specialized;
+  class V1,V2,V3,R0,R1,R2,R3,M0,M1,M2 runtime;
+  class O0,O1,O2,O3,O4 output;
+  class FW0,FW1,FW2,FW3 poc;

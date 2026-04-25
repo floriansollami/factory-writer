@@ -6,7 +6,6 @@ from temporalio import workflow
 
 from factory_writer.temporal.common.config import (
     DB_RETRY_POLICY,
-    LONG_ACTIVITY_TIMEOUT,
     SHORT_ACTIVITY_TIMEOUT,
     TaskQueue,
 )
@@ -46,6 +45,12 @@ class ProductLifecycleWorkflow:
 
     @workflow.signal
     def technical_sources_uploaded(self, payload: TechnicalSourcesUploadedSignal) -> None:
+        workflow.logger.info(
+            "Product lifecycle | PDFs techniques signalés | "
+            f"ingestion_run_id={payload.ingestion_run_id} "
+            f"document_source_ids={payload.document_source_ids} "
+            f"source_event_id={payload.source_event_id}"
+        )
         self.sources_signal = payload
         self.state.technical_sources_uploaded = True
         self.state.technical_ingestion_run_id = payload.ingestion_run_id
@@ -72,7 +77,10 @@ class ProductLifecycleWorkflow:
         if payload.resume_state is not None:
             self.state = payload.resume_state
 
-        workflow.logger.info("ProductLifecycleWorkflow.started", sku=payload.product.sku)
+        workflow.logger.info(
+            "Product lifecycle | workflow démarré | "
+            f"product_id={payload.product.product_id} sku={payload.product.sku}"
+        )
 
         canonical_product_result = await workflow.execute_activity_method(
             ProductLifecycleActivities.load_canonical_product,
@@ -87,12 +95,25 @@ class ProductLifecycleWorkflow:
         self.state.product_loaded = True
 
         self.state.status = WorkflowExecutionStatus.WAITING_TECHNICAL_SOURCES
+        workflow.logger.info(
+            "Product lifecycle | en attente des PDFs techniques | "
+            f"product_id={canonical_product.product_id} sku={canonical_product.sku}"
+        )
         await workflow.wait_condition(lambda: self.sources_signal is not None)
         sources_signal = self.sources_signal
         if sources_signal is None:
             raise RuntimeError("Aucun signal de sources techniques reçu.")
 
+        workflow.logger.info(
+            "Product lifecycle | PDFs techniques reçus | "
+            f"product_id={canonical_product.product_id} "
+            f"sku={canonical_product.sku} "
+            f"ingestion_run_id={sources_signal.ingestion_run_id} "
+            f"document_source_ids={sources_signal.document_source_ids}"
+        )
+
         self.state.status = WorkflowExecutionStatus.EXTRACTING_FACTS
+
         technical_result = await workflow.execute_child_workflow(
             TechnicalDossierIngestionWorkflow.run,
             TechnicalDossierIngestionInput(
@@ -101,7 +122,6 @@ class ProductLifecycleWorkflow:
             ),
             id=f"technical-dossier-{sources_signal.ingestion_run_id}",
             task_queue=TaskQueue.PRODUCT_LIFECYCLE.value,
-            execution_timeout=LONG_ACTIVITY_TIMEOUT,
             static_summary="Factory Writer technical dossier ingestion",
             static_details=f"Technical dossier ingestion for SKU {canonical_product.sku}",
         )

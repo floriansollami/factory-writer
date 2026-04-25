@@ -4,6 +4,7 @@ from .llm_gateway import (
     LLMGatewayPort,
     LLMMessage,
 )
+from .object_storage import ObjectStoragePort, StoredObjectFile, UploadedObjectFile
 from .reasoning import ReasoningLevel
 
 __all__ = [
@@ -11,5 +12,8 @@ __all__ = [
     "LLMCompletionResponse",
     "LLMGatewayPort",
     "LLMMessage",
+    "ObjectStoragePort",
     "ReasoningLevel",
+    "StoredObjectFile",
+    "UploadedObjectFile",
 ]

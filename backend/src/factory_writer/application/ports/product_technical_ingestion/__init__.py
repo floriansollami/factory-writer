@@ -10,6 +10,7 @@ from .repository import (
     IngestionRunSnapshot,
     ProductContextSnapshotResult,
     ProductSnapshot,
+    ProductTaxonomySnapshot,
     ProductTechnicalRepositoryPort,
     PromotedTechnicalFactInput,
     StylePackRuntimeSnapshot,
@@ -19,7 +20,7 @@ from .repository import (
     TechnicalReviewCaseInput,
     UploadedTechnicalSourceData,
 )
-from .storage import TechnicalSourceStoragePort, UploadedTechnicalDocumentSourceFile
+from .storage import TechnicalSourceStoragePort
 from .workflow import (
     STATUS_PENDING_TECH_REVIEW,
     STATUS_TECHNICAL_FACTS_READY,
@@ -64,6 +65,7 @@ __all__ = [
     "ProductContextSnapshotResult",
     "ProductLifecycleWorkflowPort",
     "ProductSnapshot",
+    "ProductTaxonomySnapshot",
     "ProductTechnicalRepositoryPort",
     "PromoteTechnicalFactsResult",
     "PromotedTechnicalFactInput",
@@ -88,7 +90,6 @@ __all__ = [
     "TechnicalReviewCasePayload",
     "TechnicalSourceStoragePort",
     "TechnicalSourcesUploaded",
-    "UploadedTechnicalDocumentSourceFile",
     "UploadedTechnicalSourceData",
     "ValidateTechnicalFactsResult",
 ]

@@ -109,6 +109,7 @@ class DocumentAIClient:
         mime_type: str = "application/pdf",
     ) -> TechnicalDocumentClassificationResult:
         gcp = self._settings.gcp
+
         if not gcp.document_ai_classifier_processor_id:
             raise ValueError("GCP__DOCUMENT_AI_CLASSIFIER_PROCESSOR_ID est requis.")
 
@@ -116,11 +117,13 @@ class DocumentAIClient:
             processor_id=gcp.document_ai_classifier_processor_id,
             processor_version=gcp.document_ai_classifier_processor_version,
         )
+
         request = documentai.ProcessRequest(
             name=processor_name,
             gcs_document=documentai.GcsDocument(gcs_uri=input_uri, mime_type=mime_type),
             skip_human_review=True,
         )
+
         started = perf_counter()
         response = await self._document_client.process_document(request=request)
         latency_ms = int((perf_counter() - started) * 1000)
@@ -157,13 +160,16 @@ class DocumentAIClient:
         mime_type: str = "application/pdf",
     ) -> TechnicalDocumentExtractionResult:
         gcp = self._settings.gcp
+
         if not gcp.document_ai_extractor_processor_id:
             raise ValueError("GCP__DOCUMENT_AI_EXTRACTOR_PROCESSOR_ID est requis.")
 
+        # processor_id + processor_version de la config
         processor_name = self._processor_name_for(
             processor_id=gcp.document_ai_extractor_processor_id,
             processor_version=gcp.document_ai_extractor_processor_version,
         )
+
         request = documentai.ProcessRequest(
             name=processor_name,
             gcs_document=documentai.GcsDocument(gcs_uri=input_uri, mime_type=mime_type),
@@ -204,6 +210,7 @@ class DocumentAIClient:
 
     def _processor_name_for(self, *, processor_id: str, processor_version: str | None) -> str:
         gcp = self._settings.gcp
+
         if processor_version:
             return self._document_client.processor_version_path(
                 gcp.project_id,

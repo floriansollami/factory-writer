@@ -26,13 +26,11 @@ const navItems = [
   "Accueil admin",
   "Guide de style",
   "Fiches produit",
-  "Dossiers techniques",
   "Signaux marketing",
-  "Évaluations",
-  "Paramètres",
 ];
 
 type AdminHomePageProps = {
+  onOpenProductSheets: () => void;
   onOpenStyleGuide: () => void;
 };
 
@@ -47,7 +45,7 @@ type PrerequisiteItem = {
   icon: typeof ShieldCheck;
 };
 
-export function AdminHomePage({ onOpenStyleGuide }: AdminHomePageProps) {
+export function AdminHomePage({ onOpenProductSheets, onOpenStyleGuide }: AdminHomePageProps) {
   const { data: styleGuideOverview } = useQuery({
     queryKey: ["style-guide-overview"],
     queryFn: getStyleGuideOverview,
@@ -82,10 +80,17 @@ export function AdminHomePage({ onOpenStyleGuide }: AdminHomePageProps) {
                     "flex w-full items-center justify-between rounded-full px-4 py-3 text-left text-sm font-semibold text-white/70 transition hover:bg-white/10 hover:text-white",
                     item === "Accueil admin" && "bg-white text-[var(--color-forest)] hover:bg-white hover:text-[var(--color-forest)]",
                   )}
-                  onClick={item === "Guide de style" ? onOpenStyleGuide : undefined}
+                  onClick={
+                    item === "Guide de style"
+                      ? onOpenStyleGuide
+                      : item === "Fiches produit"
+                        ? onOpenProductSheets
+                        : undefined
+                  }
                 >
                   {item}
                   {item === "Guide de style" ? <ArrowRight className="size-4" /> : null}
+                  {item === "Fiches produit" ? <ArrowRight className="size-4" /> : null}
                 </button>
               ))}
             </nav>

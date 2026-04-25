@@ -25,6 +25,10 @@ from factory_writer.application.ports.style_guide_ingestion import (
     StyleGuideStoragePort,
     StyleGuideWorkflowStarterPort,
 )
+from factory_writer.application.services.document_storage_paths import (
+    build_document_ai_parser_result_uri,
+    build_style_guide_pdf_object_name,
+)
 from factory_writer.domain.document_ingestion_types import (
     CurrentStep,
     StatutDocumentIngestionRun,
@@ -91,40 +95,27 @@ class StyleGuideIngestionService:
         # Le document_source SQL et l'objet stocké dans le bucket partagent ainsi le même identifiant.
         document_source_id = uuid.uuid4()
 
-        uploaded_document_source_file = await storage.upload_document_source_pdf(
+        object_name = build_style_guide_pdf_object_name(
             document_source_id=document_source_id,
             file_name=file_name,
+        )
+
+        uploaded_document_source_file = await storage.upload_pdf_object(
+            bucket_name=self._config.bucket_name,
+            object_name=object_name,
             content=content,
             content_type=content_type,
         )
 
         document_source = await self._repository.create_document_source(
-            # Même UUID métier que celui injecté dans le chemin GCS.
-            # Exemple: 550e8400-e29b-41d4-a716-446655440000
             document_source_id=document_source_id,
-            # URI complète persistée pour les lectures ultérieures.
-            # Exemple: gs://factory-writer-style-guide-test/sources/style-guides/550e8400-e29b-41d4-a716-446655440000/guide-style.pdf
             storage_uri=uploaded_document_source_file.storage_uri,
-            # Nom du bucket GCS déjà séparé par le StorageClient.
-            # Exemple: factory-writer-style-guide-test
             storage_bucket=uploaded_document_source_file.storage_bucket,
-            # Chemin objet GCS déjà séparé par le StorageClient.
-            # Exemple: sources/style-guides/550e8400-e29b-41d4-a716-446655440000/guide-style.pdf
             storage_object_name=uploaded_document_source_file.storage_object_name,
-            # Nom de fichier d'origine reçu depuis le formulaire upload.
-            # Exemple: guide-style.pdf
             original_file_name=file_name,
-            # Content type que l'API a validé comme PDF.
-            # Exemple: application/pdf
             storage_content_type=content_type,
-            # Taille brute du PDF en octets.
-            # Exemple: 1245860
             storage_size_bytes=len(content),
-            # Version du contenu retournée par GCS.
-            # Exemple: 1713712543982451
             storage_generation=uploaded_document_source_file.generation,
-            # Version des métadonnées retournée par GCS.
-            # Exemple: 1
             storage_metageneration=uploaded_document_source_file.metageneration,
         )
 
@@ -175,9 +166,15 @@ class StyleGuideIngestionService:
             )
 
         document_source_id = uuid.uuid4()
-        uploaded_document_source_file = await storage.upload_document_source_pdf(
+
+        object_name = build_style_guide_pdf_object_name(
             document_source_id=document_source_id,
             file_name=file_name,
+        )
+
+        uploaded_document_source_file = await storage.upload_pdf_object(
+            bucket_name=self._config.bucket_name,
+            object_name=object_name,
             content=content,
             content_type=content_type,
         )
@@ -388,7 +385,7 @@ class StyleGuideIngestionService:
         )
 
         # La generation GCS distingue deux PDFs différents même s'ils ont le même nom.
-        document_source_file = await storage.get_document_source_file(payload.storage_uri)
+        document_source_file = await storage.get_object_file(payload.storage_uri)
 
         if document_source_file is None:
             raise FileNotFoundError(f"Objet Cloud Storage introuvable: {payload.storage_uri}")
@@ -398,11 +395,11 @@ class StyleGuideIngestionService:
 
         # on construit l’URI GCS du dossier de sortie technique où Document AI va écrire le résultat de parsing pour ce PDF précis et cette version précise du PDF
 
-        parser_result_uri = storage.build_parser_result_uri(
-            payload.storage_uri,
-            "style-guide-layout",
-            payload.document_source_id,
-            document_source_file.generation,
+        parser_result_uri = build_document_ai_parser_result_uri(
+            input_uri=payload.storage_uri,
+            extraction_type="style-guide-layout",
+            document_source_id=payload.document_source_id,
+            generation=document_source_file.generation,
         )
 
         parse_result = await parser.start_document_layout_parse(
@@ -459,7 +456,7 @@ class StyleGuideIngestionService:
             return None
 
         # vérifie qu’un artefact réel existe bien dans GCS sous cet output_uri
-        if not await storage.has_parser_result(parse_result.output_uri):
+        if not await storage.has_objects(parse_result.output_uri):
             raise RuntimeError(
                 f"Document AI n'a produit aucun JSON exploitable sous {parse_result.output_uri}"
             )

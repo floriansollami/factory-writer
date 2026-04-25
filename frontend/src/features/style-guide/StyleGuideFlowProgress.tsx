@@ -1,6 +1,6 @@
 import { cn } from "@/lib/utils";
 
-export type StyleGuideFlowStep = "upload" | "verify" | "analyze" | "review";
+type StyleGuideFlowStep = "upload" | "verify" | "analyze" | "review";
 
 type StyleGuideFlowProgressProps = {
   className?: string;

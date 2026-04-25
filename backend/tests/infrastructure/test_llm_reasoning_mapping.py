@@ -5,8 +5,8 @@ from factory_writer.infrastructure.prompts.local_prompt_registry import (
 
 
 def test_reasoning_level_is_passed_through_as_litellm_reasoning_effort() -> None:
-    assert _reasoning_kwargs("vertex_ai/gemini-3.1-pro-preview", "high") == {
-        "reasoning_effort": "high"
+    assert _reasoning_kwargs("vertex_ai/gemini-3-flash-preview", "minimal") == {
+        "reasoning_effort": "minimal"
     }
 
 

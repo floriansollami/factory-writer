@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  ArrowUpRight,
+  ArrowLeft,
   ArrowRight,
   CheckCircle2,
   Clock3,
@@ -13,7 +13,7 @@ import {
   UploadCloud,
 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { useSearchParams } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -31,12 +31,9 @@ import { cn } from "@/lib/utils";
 
 const navItems = [
   "Accueil admin",
-  "Fiches produit",
   "Guide de style",
-  "Dossiers techniques",
+  "Fiches produit",
   "Signaux marketing",
-  "Évaluations",
-  "Paramètres",
 ];
 
 const emptyStyleGuideOverview: StyleGuideOverview = {
@@ -55,7 +52,8 @@ const emptyStyleGuideOverview: StyleGuideOverview = {
 
 type StyleGuideHomePageProps = {
   onOpenAdminHome: () => void;
-  onOpenRulesReview: () => void;
+  onOpenProductSheets: () => void;
+  onOpenRulesReview: (returnTo?: string) => void;
 };
 
 type CurrentWorkflow = NonNullable<StyleGuideOverview["currentWorkflow"]>;
@@ -66,12 +64,18 @@ type OptimisticIngestion = {
   workflow: CurrentWorkflow;
 };
 
-export function StyleGuideHomePage({ onOpenAdminHome, onOpenRulesReview }: StyleGuideHomePageProps) {
+export function StyleGuideHomePage({
+  onOpenAdminHome,
+  onOpenProductSheets,
+  onOpenRulesReview,
+}: StyleGuideHomePageProps) {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [optimisticDocumentSource, setOptimisticDocumentSource] = useState<PendingDocumentSource | null>(null);
   const [optimisticIngestion, setOptimisticIngestion] = useState<OptimisticIngestion | null>(null);
   const dialog = searchParams.get("dialog");
+  const returnTo = sanitizeReturnTo(searchParams.get("returnTo"));
   const reuploadDocumentSourceId =
     dialog === "reupload" ? searchParams.get("documentSourceId") : null;
   const isUploadOpen = dialog === "upload" || dialog === "reupload";
@@ -103,9 +107,9 @@ export function StyleGuideHomePage({ onOpenAdminHome, onOpenRulesReview }: Style
 
   useEffect(() => {
     if (dialog === "reupload" && reuploadDocumentSourceId === null) {
-      setSearchParams({}, { replace: true });
+      setSearchParams(buildStyleGuideSearchParams(returnTo), { replace: true });
     }
-  }, [dialog, reuploadDocumentSourceId, setSearchParams]);
+  }, [dialog, reuploadDocumentSourceId, returnTo, setSearchParams]);
 
   useEffect(() => {
     if (data?.currentWorkflow !== null && data?.currentWorkflow !== undefined) {
@@ -148,18 +152,20 @@ export function StyleGuideHomePage({ onOpenAdminHome, onOpenRulesReview }: Style
   });
 
   function openUploadDialog() {
-    setSearchParams({ dialog: "upload" });
+    setSearchParams(buildStyleGuideSearchParams(returnTo, { dialog: "upload" }));
   }
 
   function openReuploadDialog(documentSourceId: string) {
-    setSearchParams({
-      dialog: "reupload",
-      documentSourceId,
-    });
+    setSearchParams(
+      buildStyleGuideSearchParams(returnTo, {
+        dialog: "reupload",
+        documentSourceId,
+      }),
+    );
   }
 
   function closeUploadDialog() {
-    setSearchParams({}, { replace: true });
+    setSearchParams(buildStyleGuideSearchParams(returnTo), { replace: true });
   }
 
   return (
@@ -187,11 +193,18 @@ export function StyleGuideHomePage({ onOpenAdminHome, onOpenRulesReview }: Style
                     "flex w-full items-center justify-between rounded-full px-4 py-3 text-left text-sm font-semibold text-white/70 transition hover:bg-white/10 hover:text-white",
                     item === "Guide de style" && "bg-white text-[var(--color-forest)] hover:bg-white hover:text-[var(--color-forest)]",
                   )}
-                  onClick={item === "Accueil admin" ? onOpenAdminHome : undefined}
+                  onClick={
+                    item === "Accueil admin"
+                      ? onOpenAdminHome
+                      : item === "Fiches produit"
+                        ? onOpenProductSheets
+                        : undefined
+                  }
                 >
                   {item}
                   {item === "Accueil admin" ? <ArrowRight className="size-4" /> : null}
-                  {item === "Guide de style" ? <ArrowUpRight className="size-4" /> : null}
+                  {item === "Fiches produit" ? <ArrowRight className="size-4" /> : null}
+                  {item === "Guide de style" ? <ArrowRight className="size-4" /> : null}
                 </button>
               ))}
             </nav>
@@ -216,6 +229,12 @@ export function StyleGuideHomePage({ onOpenAdminHome, onOpenRulesReview }: Style
               ) : null}
             </div>
             <div className="flex flex-wrap gap-3">
+              {isRuntimePackActive && returnTo !== null ? (
+                <Button variant="secondary" onClick={() => navigate(returnTo)}>
+                  <ArrowLeft className="size-4" />
+                  Revenir à la fiche produit
+                </Button>
+              ) : null}
               {isRuntimePackActive ? (
                 <Button variant="secondary" onClick={openUploadDialog}>
                   <UploadCloud className="size-4" />
@@ -247,7 +266,7 @@ export function StyleGuideHomePage({ onOpenAdminHome, onOpenRulesReview }: Style
             <EmptyStyleGuideDashboard onUploadGuide={openUploadDialog} />
           ) : !isRuntimePackActive ? (
             <IngestionProgressDashboard
-              onOpenRulesReview={onOpenRulesReview}
+              onOpenRulesReview={() => onOpenRulesReview(returnTo ?? undefined)}
               review={{
                 rules: overview.rules,
               }}
@@ -284,7 +303,7 @@ export function StyleGuideHomePage({ onOpenAdminHome, onOpenRulesReview }: Style
                   </div>
                   <RecentPacksTable
                     packs={overview.recentPacks}
-                    onRowClick={onOpenRulesReview}
+                    onRowClick={() => onOpenRulesReview(returnTo ?? undefined)}
                   />
                 </Card>
               </section>
@@ -805,6 +824,21 @@ function formatWorkflowElapsedTime(value: string) {
 
 function formatNullable(value: string | null) {
   return value && value.length > 0 ? value : "Non renseigné";
+}
+
+function sanitizeReturnTo(value: string | null) {
+  if (value !== null && value.startsWith("/product-sheets/") && !value.startsWith("//")) {
+    return value;
+  }
+
+  return null;
+}
+
+function buildStyleGuideSearchParams(
+  returnTo: string | null,
+  values: Record<string, string> = {},
+) {
+  return returnTo === null ? values : { ...values, returnTo };
 }
 
 function stepStatusLabel(status: CurrentWorkflow["steps"][number]["status"]) {

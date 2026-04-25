@@ -6,7 +6,7 @@ import {
   Pencil,
   RotateCcw,
 } from "lucide-react";
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardTitle } from "@/components/ui/card";
@@ -47,17 +47,7 @@ export function RulesManagementPanel({
   const [editedRule, setEditedRule] = useState<StyleRule | null>(null);
   const [isEditorOpen, setIsEditorOpen] = useState(false);
 
-  const summary = useMemo(
-    () => ({
-      pending: rules.filter((rule) => rule.decisionEditoriale === "A_VALIDER")
-        .length,
-      approved: rules.filter((rule) => rule.decisionEditoriale === "APPROUVEE")
-        .length,
-      disabled: rules.filter((rule) => rule.decisionEditoriale === "DESACTIVEE")
-        .length,
-    }),
-    [rules],
-  );
+  const summary = countReviewDecisions(rules);
 
   useEffect(() => {
     if (rules.length === 0) {
@@ -70,12 +60,10 @@ export function RulesManagementPanel({
     );
   }, [rules]);
 
-  const currentIndex = useMemo(() => {
-    if (rules.length === 0) {
-      return -1;
-    }
-    return Math.min(Math.max(activeRuleIndex, 0), rules.length - 1);
-  }, [activeRuleIndex, rules]);
+  const currentIndex =
+    rules.length === 0
+      ? -1
+      : Math.min(Math.max(activeRuleIndex, 0), rules.length - 1);
 
   const currentRule = currentIndex >= 0 ? rules[currentIndex] : null;
   const previousRule = currentIndex > 0 ? rules[currentIndex - 1] : null;
@@ -168,28 +156,28 @@ export function RulesManagementPanel({
         <div className="border-b border-black/5 bg-[linear-gradient(145deg,rgba(255,253,248,0.96),rgba(238,242,234,0.9))] p-5">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--color-teak)]">
-              Revue des regles
+              Revue des règles
             </p>
             <CardTitle className="mt-2">
               {readOnly
                 ? "Relecture du pack actif"
-                : "Revue sequentielle du pack candidat"}
+                : "Revue séquentielle du pack candidat"}
             </CardTitle>
           </div>
 
           <div className="mt-5 flex flex-wrap items-center gap-2 text-sm">
             <ReviewSummaryChip
-              label="A traiter"
+              label="À traiter"
               value={summary.pending}
               tone="warning"
             />
             <ReviewSummaryChip
-              label="Approuvees"
+              label="Approuvées"
               value={summary.approved}
               tone="success"
             />
             <ReviewSummaryChip
-              label="Ecartees"
+              label="Écartées"
               value={summary.disabled}
               tone="neutral"
             />
@@ -206,7 +194,7 @@ export function RulesManagementPanel({
                       Progression
                     </p>
                     <p className="mt-1 text-sm text-[var(--color-muted)]">
-                      Regle {currentIndex + 1} sur {rules.length}
+                      Règle {currentIndex + 1} sur {rules.length}
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
@@ -257,7 +245,7 @@ export function RulesManagementPanel({
 
                     <div className="mt-4 rounded-[1.35rem] border border-black/6 bg-[linear-gradient(180deg,#fffdf7,#f4f1e8)] p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">
                       <p className="text-[0.68rem] font-bold uppercase tracking-[0.16em] text-[var(--color-teak)]">
-                        Regle proposee
+                        Règle proposée
                       </p>
                       <p className="mt-3 font-serif text-[1.9rem] font-semibold leading-tight tracking-[-0.04em] text-[var(--color-ink)]">
                         {currentRule.texteRegle}
@@ -285,7 +273,7 @@ export function RulesManagementPanel({
                             onClick={() => void handleDisableCurrentRule()}
                             disabled={isPending}
                           >
-                            Ecarter
+                            Écarter
                           </Button>
                         )}
 
@@ -308,7 +296,7 @@ export function RulesManagementPanel({
                           disabled={isPending}
                         >
                           <Check className="size-4" />
-                          Approuver cette regle
+                          Approuver cette règle
                         </Button>
                       ) : null}
                     </div>
@@ -330,7 +318,7 @@ export function RulesManagementPanel({
         ) : (
           <div className="grid place-items-center gap-2 px-6 py-14 text-center text-sm text-[var(--color-muted)]">
             <FileSearch className="size-7" />
-            Aucune regle a relire pour le moment.
+            Aucune règle à relire pour le moment.
           </div>
         )}
       </Card>
@@ -371,6 +359,31 @@ function ReviewSummaryChip({
         {value}
       </span>
     </div>
+  );
+}
+
+function countReviewDecisions(rules: StyleRule[]) {
+  return rules.reduce(
+    (summary, rule) => {
+      if (rule.decisionEditoriale === "A_VALIDER") {
+        summary.pending += 1;
+      }
+
+      if (rule.decisionEditoriale === "APPROUVEE") {
+        summary.approved += 1;
+      }
+
+      if (rule.decisionEditoriale === "DESACTIVEE") {
+        summary.disabled += 1;
+      }
+
+      return summary;
+    },
+    {
+      approved: 0,
+      disabled: 0,
+      pending: 0,
+    },
   );
 }
 

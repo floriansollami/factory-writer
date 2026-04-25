@@ -4,6 +4,7 @@ import asyncio
 import logging
 
 from temporalio.worker import Worker
+from temporalio.worker.workflow_sandbox import SandboxedWorkflowRunner, SandboxRestrictions
 
 from factory_writer.application.services.product_technical_ingestion_service import (
     ProductTechnicalIngestionService,
@@ -31,6 +32,14 @@ from factory_writer.temporal.technical_dossier_ingestion.workflow import (
 
 logger = logging.getLogger(__name__)
 
+_WORKFLOW_SANDBOX_RESTRICTIONS = SandboxRestrictions.default.with_passthrough_modules(
+    "pydantic",
+    "pydantic_core",
+    "factory_writer.temporal.common.contracts",
+    "factory_writer.temporal.sku_lifecycle.contracts",
+    "factory_writer.temporal.technical_dossier_ingestion.contracts",
+)
+
 
 async def main() -> None:
     settings = get_settings()
@@ -40,7 +49,7 @@ async def main() -> None:
     service = ProductTechnicalIngestionService(
         settings=settings,
         repository=ProductRepository(session_factory),
-        document_ai=DocumentAIClient(settings),
+        document_processor=DocumentAIClient(settings),
     )
     product_activities = ProductLifecycleActivities(service)
     technical_activities = TechnicalDossierActivities(service)
@@ -67,6 +76,9 @@ async def main() -> None:
         use_worker_versioning=deployment_config is not None,
         deployment_config=deployment_config,
         identity=build_worker_identity("product-lifecycle"),
+        workflow_runner=SandboxedWorkflowRunner(
+            restrictions=_WORKFLOW_SANDBOX_RESTRICTIONS,
+        ),
     )
 
     logger.info("Temporal worker started", extra={"worker": "product-lifecycle"})

@@ -7,7 +7,7 @@ from temporalio import workflow
 from factory_writer.temporal.common.config import (
     DB_RETRY_POLICY,
     DOC_AI_RETRY_POLICY,
-    MEDIUM_ACTIVITY_TIMEOUT,
+    LONG_ACTIVITY_TIMEOUT,
     SHORT_ACTIVITY_TIMEOUT,
     TaskQueue,
 )
@@ -76,10 +76,15 @@ class TechnicalDossierIngestionWorkflow:
         self,
         payload: TechnicalDossierIngestionInput,
     ) -> TechnicalDossierIngestionOutput:
+        product_id = payload.product.product_id
+
+        if product_id is None:
+            raise RuntimeError("product_id est requis pour préparer l'ingestion technique.")
+
         prepared = await workflow.execute_activity_method(
             TechnicalDossierActivities.prepare_technical_ingestion_run,
             PrepareTechnicalIngestionInput(
-                product=payload.product,
+                product_id=product_id,
                 ingestion_run_id=payload.sources_signal.ingestion_run_id,
                 document_source_ids=payload.sources_signal.document_source_ids,
             ),
@@ -92,7 +97,7 @@ class TechnicalDossierIngestionWorkflow:
             TechnicalDossierActivities.classify_technical_sources,
             ClassifyTechnicalSourcesInput(sources=prepared.sources),
             task_queue=TaskQueue.PRODUCT_LIFECYCLE.value,
-            start_to_close_timeout=MEDIUM_ACTIVITY_TIMEOUT,
+            start_to_close_timeout=LONG_ACTIVITY_TIMEOUT,
             retry_policy=DOC_AI_RETRY_POLICY,
         )
 
@@ -114,7 +119,7 @@ class TechnicalDossierIngestionWorkflow:
                 classifications=classifications.classifications,
             ),
             task_queue=TaskQueue.PRODUCT_LIFECYCLE.value,
-            start_to_close_timeout=MEDIUM_ACTIVITY_TIMEOUT,
+            start_to_close_timeout=LONG_ACTIVITY_TIMEOUT,
             retry_policy=DOC_AI_RETRY_POLICY,
         )
 

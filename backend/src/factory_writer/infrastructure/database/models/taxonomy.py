@@ -17,5 +17,11 @@ class TaxonomieProduit(BaseModel):
         ForeignKey("taxonomie_produit.id", ondelete="SET NULL"), nullable=True
     )
 
+    parent = relationship(
+        "TaxonomieProduit",
+        remote_side="TaxonomieProduit.id",
+        back_populates="children",
+    )
+    children = relationship("TaxonomieProduit", back_populates="parent")
     products = relationship("Product", back_populates="taxonomie_produit")
     style_rules = relationship("StyleRule", back_populates="taxonomie_produit")
