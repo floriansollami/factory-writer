@@ -8,7 +8,7 @@ from factory_writer.application.ports.object_storage import (
     UploadedObjectFile,
 )
 from factory_writer.core.config import Settings
-from factory_writer.infrastructure.gcp.gcs_uri import as_directory_prefix, parse_gcs_uri
+from factory_writer.infrastructure.gcp.gcs_uri import parse_gcs_uri
 
 _PDF_CONTENT_TYPE = "application/pdf"
 
@@ -35,9 +35,6 @@ class StorageClient:
 
     async def get_object_file(self, storage_uri: str) -> StoredObjectFile | None:
         return await asyncio.to_thread(self._get_object_file_sync, storage_uri)
-
-    async def has_objects(self, result_uri: str) -> bool:
-        return await asyncio.to_thread(self._has_objects_sync, result_uri)
 
     def _upload_pdf_object_sync(
         self,
@@ -91,12 +88,6 @@ class StorageClient:
             generation=str(blob.generation),
             metageneration=str(blob.metageneration),
         )
-
-    def _has_objects_sync(self, dir_uri: str) -> bool:
-        result_uri = parse_gcs_uri(dir_uri, require_object=False)
-        prefix = as_directory_prefix(result_uri.object_name)
-        blobs = self._client.list_blobs(result_uri.bucket_name, prefix=prefix, max_results=1)
-        return any(blobs)
 
 
 def _normalize_pdf_content_type(content_type: str) -> str:

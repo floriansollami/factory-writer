@@ -7,7 +7,6 @@ from temporalio import activity
 
 from factory_writer.application.ports.style_guide_ingestion import (
     StyleGuideIngestionInput,
-    StyleGuideLayoutJobResult,
     StyleGuideLayoutParseResult,
 )
 from factory_writer.application.services.product_technical_ingestion_service import (
@@ -16,7 +15,6 @@ from factory_writer.application.services.product_technical_ingestion_service imp
 from factory_writer.application.services.style_guide_ingestion_service import (
     StyleGuideIngestionService,
 )
-from factory_writer.temporal.common.config import DOC_AI_POLL_INTERVAL
 from factory_writer.temporal.style_guide_ingestion.contracts import (
     StyleGuideDraftStylePackResult,
 )
@@ -53,46 +51,21 @@ class StyleGuideActivities:
         )
 
     @activity.defn
-    async def start_docai_job(
+    async def parse_docai_document(
         self,
         payload: StyleGuideIngestionInput,
-    ) -> StyleGuideLayoutJobResult:
+    ) -> StyleGuideLayoutParseResult:
         logger.info(
-            "Style guide | Document AI | démarrage du job",
+            "Style guide | Document AI | analyse démarrée",
             ingestion_run_id=str(payload.ingestion_run_id),
             document_source_id=str(payload.document_source_id),
         )
-        result = await self._service.start_document_layout_parse(payload)
+        result = await self._service.parse_document_layout(payload)
         logger.info(
-            "Style guide | Document AI | job lancé",
+            "Style guide | Document AI | analyse terminée",
             ingestion_run_id=str(payload.ingestion_run_id),
             document_source_id=str(payload.document_source_id),
-            operation_id=result.operation_id,
-        )
-        return result
-
-    @activity.defn
-    async def check_docai_job(
-        self,
-        payload: StyleGuideLayoutJobResult,
-    ) -> StyleGuideLayoutParseResult | None:
-        result = await self._service.check_document_layout_parse(payload)
-        if result is None:
-            logger.info(
-                "Style guide | Document AI | en attente",
-                ingestion_run_id=str(payload.ingestion_run_id),
-                document_source_id=str(payload.document_source_id),
-                operation_id=payload.operation_id,
-                next_poll_in_seconds=int(DOC_AI_POLL_INTERVAL.total_seconds()),
-            )
-            return None
-
-        logger.info(
-            "Style guide | Document AI | résultat prêt",
-            ingestion_run_id=str(payload.ingestion_run_id),
-            document_source_id=str(payload.document_source_id),
-            operation_id=payload.operation_id,
-            output_uri=result.output_uri,
+            chunk_count=len(result.chunks),
         )
         return result
 

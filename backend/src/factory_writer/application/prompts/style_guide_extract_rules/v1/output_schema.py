@@ -13,35 +13,36 @@ class DraftStyleRuleV1(BaseModel):
 
     source_evidence_provider_id: StrippedNonEmptyString = Field(
         description=(
-            "Identifiant exact d'un chunk de preuve fourni en entree. Ne jamais inventer d'identifiant."
+            "Identifiant exact d'un chunk de preuve fourni en entrée. Ne jamais inventer d'identifiant."
         )
     )
     citation_source: StrippedNonEmptyString = Field(
         description=(
-            "Court extrait copie depuis le chunk reference, justifiant la regle. "
-            "Si aucun extrait direct ne justifie la regle, ne pas produire cette regle."
+            "Court extrait copié exactement depuis le chunk référencé, justifiant la règle. "
+            "Conserver les accents, la casse et la ponctuation du fragment source. "
+            "Si aucun extrait direct ne justifie la règle, ne pas produire cette règle."
         )
     )
     type_regle: TypeRegle = Field(
         description=(
-            "VOIX pour une regle globale de marque, TON pour une regle liee a une "
+            "VOIX pour une règle globale de marque, TON pour une règle liée à une "
             "famille produit, FORMATAGE pour une contrainte de structure, "
             "PROMESSE_INTERDITE pour une formulation ou claim interdit."
         )
     )
     niveau_contrainte: NiveauContrainte = Field(
-        description="HARD pour une contrainte bloquante, SOFT pour une preference editoriale."
+        description="HARD pour une contrainte bloquante, SOFT pour une préférence éditoriale."
     )
     texte_regle: StrippedNonEmptyString = Field(
         description=(
-            "Regle atomique reformulee comme une contrainte exploitable par le pipeline. "
-            "Une regle = une idee. Ne pas ajouter d'information absente du fragment."
+            "Règle atomique reformulée comme une contrainte exploitable par le pipeline. "
+            "Une règle = une idée. Ne pas ajouter d'information absente du fragment."
         )
     )
     famille_code: FamilleCode | None = Field(
         description=(
-            "Code de famille autorise si la regle cible explicitement une famille produit. "
-            "null si la regle est globale. Ne jamais inventer de code."
+            "Code de famille autorisé si la règle cible explicitement une famille produit. "
+            "null si la règle est globale. Ne jamais inventer de code."
         ),
     )
 
@@ -59,7 +60,7 @@ class DraftStylePackExtractionV1(BaseModel):
 
     regles: list[DraftStyleRuleV1] = Field(
         min_length=1,
-        description="Liste des regles explicitement justifiees par les chunks fournis.",
+        description="Liste des règles explicitement justifiées par les chunks fournis.",
     )
 
 

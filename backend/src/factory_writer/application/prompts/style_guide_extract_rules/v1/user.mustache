@@ -15,51 +15,52 @@ Ce pack sera relu avant activation runtime.
 
 <strategie_extraction>
 1. Lis uniquement les extraits source fournis dans <extraits_source_json>.
-2. Extrais une regle seulement si elle est directement supportee par un extrait source.
-3. Pour chaque regle, renseigne source_evidence_provider_id avec l'identifiant exact de l'extrait source.
-4. Pour chaque regle, renseigne citation_source avec un court extrait copie depuis cet extrait source.
-5. Reformule texte_regle en contrainte atomique, sans ajouter de sens absent de la citation.
-6. Utilise famille_code uniquement si la regle cible clairement une famille autorisee.
-7. Utilise famille_code=null pour une regle globale de marque.
-8. Si une regle semble contextuelle mais que la famille produit n'est pas claire, ignore cette regle.
-9. Ne produis pas de regle speculative, implicite ou basee sur des connaissances externes.
+2. Extrais une règle seulement si elle est directement supportée par un extrait source.
+3. Pour chaque règle, renseigne source_evidence_provider_id avec l’identifiant exact de l’extrait source.
+4. Pour chaque règle, renseigne citation_source avec un court extrait copié exactement depuis cet extrait source.
+5. citation_source doit conserver les accents, la casse, la ponctuation et les espaces significatifs du fragment source.
+6. Reformule texte_regle en contrainte atomique, sans ajouter de sens absent de la citation.
+7. Utilise famille_code uniquement si la règle cible clairement une famille autorisée.
+8. Utilise famille_code=null pour une règle globale de marque.
+9. Si une règle semble contextuelle mais que la famille produit n’est pas claire, ignore cette règle.
+10. Ne produis pas de règle spéculative, implicite ou basée sur des connaissances externes.
 </strategie_extraction>
 
 <definition_des_fragments_normatifs>
-- Un fragment normatif explicite est une ligne, une puce ou un item qui exprime directement une contrainte, une interdiction, une preference editoriale, un profil de ton, ou une consigne de formulation.
-- Les lignes codees (par exemple VG-*, HR-*, SR-*, CI-*) sont des fragments normatifs explicites.
-- Une ligne de profil contenant famille_code=... | objectif : ... | lexique : ... est aussi un fragment normatif explicite, meme si elle n'a pas de code HR/SR/VG/CI.
-- Une ligne de profil famille_code=... | objectif : ... | lexique : ... doit produire une regle TON dediee a cette famille.
-- Une ligne SR-* ciblee sur la meme famille doit produire une autre regle TON distincte. Ne fusionne jamais la ligne famille_code=... avec la ligne SR-* correspondante.
-- Les exemples editoriaux, la gouvernance, le moodboard, les metadonnees de document et les tableaux d'administration ne sont pas des regles, sauf s'ils contiennent eux-memes une consigne normative explicite.
-- Les expressions conseillees du lexique prefere sont des indices editoriaux. Ne les transforme pas en regles autonomes si le schema courant ne permet pas de les representer directement comme une contrainte explicite.
+- Un fragment normatif explicite est une ligne, une puce ou un item qui exprime directement une contrainte, une interdiction, une préférence éditoriale, un profil de ton, ou une consigne de formulation.
+- Les lignes codées (par exemple VG-*, HR-*, SR-*, CI-*) sont des fragments normatifs explicites.
+- Une ligne de profil contenant famille_code=... | objectif : ... | lexique : ... est aussi un fragment normatif explicite, même si elle n’a pas de code HR/SR/VG/CI.
+- Une ligne de profil famille_code=... | objectif : ... | lexique : ... doit produire une règle TON dédiée à cette famille.
+- Une ligne SR-* ciblée sur la même famille doit produire une autre règle TON distincte. Ne fusionne jamais la ligne famille_code=... avec la ligne SR-* correspondante.
+- Les exemples éditoriaux, la gouvernance, le moodboard, les métadonnées de document et les tableaux d’administration ne sont pas des règles, sauf s’ils contiennent eux-mêmes une consigne normative explicite.
+- Les expressions conseillées du lexique préféré sont des indices éditoriaux. Ne les transforme pas en règles autonomes si le schéma courant ne permet pas de les représenter directement comme une contrainte explicite.
 </definition_des_fragments_normatifs>
 
 <protocole_de_couverture>
-1. Dresse d'abord, en silence, un inventaire ordonne de tous les fragments normatifs explicites presents dans les extraits source.
-2. Pour chaque fragment normatif explicite representable dans le schema courant, produis au moins une regle.
-3. Prefere exactement une regle par fragment normatif explicite.
-4. Ne fusionne jamais deux fragments sources distincts en une seule regle.
-5. Ne dedoublonne pas deux fragments distincts sous pretexte qu'ils parlent du meme sujet ; garde une regle separee par citation_source distincte.
+1. Dresse d’abord, en silence, un inventaire ordonné de tous les fragments normatifs explicites présents dans les extraits source.
+2. Pour chaque fragment normatif explicite représentable dans le schéma courant, produis au moins une règle.
+3. Préfère exactement une règle par fragment normatif explicite.
+4. Ne fusionne jamais deux fragments sources distincts en une seule règle.
+5. Ne dédoublonne pas deux fragments distincts sous prétexte qu’ils parlent du même sujet ; garde une règle séparée par citation_source distincte.
 6. Si un fragment contient un identifiant visible (VG-01, HR-02, SR-01, CI-03, etc.), conserve cet identifiant dans citation_source.
-7. Trie la liste finale regles dans l'ordre d'apparition de leurs fragments sources dans les extraits source.
-8. Avant de repondre, compare la liste finale a ton inventaire et ajoute toute regle manquante representable par le schema.
+7. Trie la liste finale regles dans l’ordre d’apparition de leurs fragments sources dans les extraits source.
+8. Avant de répondre, compare la liste finale à ton inventaire et ajoute toute règle manquante représentable par le schéma.
 </protocole_de_couverture>
 
 <protocole_de_classification>
-- Applique la semantique stable des types definie dans les instructions systeme.
+- Applique la sémantique stable des types définie dans les instructions système.
 - HR-01 et HR-02 sont des PROMESSE_INTERDITE.
-- HR-03 reste une regle globale de VOIX.
-- SR-03 reste une regle globale de VOIX, pas une regle de FORMATAGE.
+- HR-03 reste une règle globale de VOIX.
+- SR-03 reste une règle globale de VOIX, pas une règle de FORMATAGE.
 </protocole_de_classification>
 
 <exemples_de_decoupage>
-- "VG-01 | hard Vouvoiement constant et distance respectueuse." => une regle VOIX, famille_code=null.
-- "famille_code=mobilier_jardin | objectif : presence sobre, architecturale, premium | lexique : matiere, ligne, art de vivre exterieur." => une regle TON dediee a mobilier_jardin.
-- "SR-01 | mobilier_jardin Favoriser matiere, stabilite, confort d'usage et scene de vie exterieure." => une autre regle TON dediee a mobilier_jardin, distincte de la ligne famille_code=....
-- "CI-01 | resiste aux intemperies a vie" => une regle PROMESSE_INTERDITE, HARD.
-- "HR-01 | globale Ne jamais inventer une performance ou une preuve absente des faits techniques." => une regle PROMESSE_INTERDITE, HARD.
-- "HR-03 | globale Ne jamais contredire matiere, dimension, certification ou contrainte d'assemblage." => une regle VOIX, HARD.
-- "SR-03 | globale Preferer des verbes concrets et mesures a tout superlatif facile." => une regle VOIX, SOFT.
-- Un exemple approuve/rejete qui illustre une regle deja explicite ailleurs ne doit pas creer une regle supplementaire.
+- "VG-01 | hard Vouvoiement constant et distance respectueuse." => une règle VOIX, famille_code=null.
+- "famille_code=mobilier_jardin | objectif : présence sobre, architecturale, premium | lexique : matière, ligne, art de vivre extérieur." => une règle TON dédiée à mobilier_jardin.
+- "SR-01 | mobilier_jardin Favoriser matière, stabilité, confort d’usage et scène de vie extérieure." => une autre règle TON dédiée à mobilier_jardin, distincte de la ligne famille_code=....
+- "CI-01 | résiste aux intempéries à vie" => une règle PROMESSE_INTERDITE, HARD.
+- "HR-01 | globale Ne jamais inventer une performance ou une preuve absente des faits techniques." => une règle PROMESSE_INTERDITE, HARD.
+- "HR-03 | globale Ne jamais contredire matière, dimension, certification ou contrainte d’assemblage." => une règle VOIX, HARD.
+- "SR-03 | globale Préférer des verbes concrets et mesurés à tout superlatif facile." => une règle VOIX, SOFT.
+- Un exemple approuvé/rejeté qui illustre une règle déjà explicite ailleurs ne doit pas créer une règle supplémentaire.
 </exemples_de_decoupage>

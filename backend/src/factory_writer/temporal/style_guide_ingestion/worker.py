@@ -81,8 +81,7 @@ async def main() -> None:
         workflows=[StyleGuideIngestionWorkflow],
         activities=[
             activities.mark_ingestion_failed,
-            activities.start_docai_job,
-            activities.check_docai_job,
+            activities.parse_docai_document,
             activities.generate_draft_pack,
             activities.finalize_style_pack_approval,
             activities.notify_style_pack_activated,

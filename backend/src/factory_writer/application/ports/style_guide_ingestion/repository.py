@@ -203,8 +203,10 @@ class StyleGuideRepositoryPort(Protocol):
         *,
         run_id: uuid.UUID,
         parser_resource_id: str,
-        operation_id: str,
-        output_uri: str,
+        mode: str,
+        latency_ms: int | None = None,
+        operation_id: str | None = None,
+        output_uri: str | None = None,
     ) -> StyleGuideIngestionRunSnapshot: ...
 
     async def get_latest_draft_pack(self) -> StyleGuidePackSnapshot | None: ...

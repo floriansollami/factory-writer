@@ -6,15 +6,12 @@ from temporalio import workflow
 
 from factory_writer.application.ports.style_guide_ingestion import (
     StyleGuideIngestionInput,
-    StyleGuideLayoutJobResult,
     StyleGuideLayoutParseResult,
 )
 from factory_writer.temporal.common.config import (
     DB_ACTIVITY_TIMEOUT,
     DB_RETRY_POLICY,
-    DOC_AI_POLL_INTERVAL,
     DOC_AI_RETRY_POLICY,
-    DOC_AI_START_RETRY_POLICY,
     LLM_RETRY_POLICY,
     MEDIUM_ACTIVITY_TIMEOUT,
     SHORT_ACTIVITY_TIMEOUT,
@@ -70,15 +67,13 @@ class StyleGuideIngestionWorkflow:
         self.state.status = WorkflowExecutionStatus.BUILDING_CONTEXT
 
         try:
-            layout_job: StyleGuideLayoutJobResult = await workflow.execute_activity_method(
-                StyleGuideActivities.start_docai_job,
+            layout_result: StyleGuideLayoutParseResult = await workflow.execute_activity_method(
+                StyleGuideActivities.parse_docai_document,
                 payload,
                 task_queue=TaskQueue.STYLE_GUIDE_INGESTION.value,
-                start_to_close_timeout=SHORT_ACTIVITY_TIMEOUT,
-                retry_policy=DOC_AI_START_RETRY_POLICY,
+                start_to_close_timeout=MEDIUM_ACTIVITY_TIMEOUT,
+                retry_policy=DOC_AI_RETRY_POLICY,
             )
-
-            layout_result = await self._wait_for_docai_result(layout_job)
 
             draft_style_pack: StyleGuideDraftStylePackResult = (
                 await workflow.execute_activity_method(
@@ -152,26 +147,6 @@ class StyleGuideIngestionWorkflow:
 
         self.state.final_decision = decision
         self.state.decision_received_at = workflow.now().isoformat()
-
-    async def _wait_for_docai_result(
-        self,
-        layout_job: StyleGuideLayoutJobResult,
-    ) -> StyleGuideLayoutParseResult:
-        while True:
-            layout_result: (
-                StyleGuideLayoutParseResult | None
-            ) = await workflow.execute_activity_method(
-                StyleGuideActivities.check_docai_job,
-                layout_job,
-                task_queue=TaskQueue.STYLE_GUIDE_INGESTION.value,
-                start_to_close_timeout=SHORT_ACTIVITY_TIMEOUT,
-                retry_policy=DOC_AI_RETRY_POLICY,
-            )
-
-            if layout_result is not None:
-                return layout_result
-
-            await workflow.sleep(DOC_AI_POLL_INTERVAL)
 
     async def _mark_ingestion_failed(
         self,

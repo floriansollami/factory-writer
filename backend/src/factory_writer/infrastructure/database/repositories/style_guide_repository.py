@@ -399,8 +399,10 @@ class StyleGuideRepository:
         *,
         run_id: uuid.UUID,
         parser_resource_id: str,
-        operation_id: str,
-        output_uri: str,
+        mode: str,
+        latency_ms: int | None = None,
+        operation_id: str | None = None,
+        output_uri: str | None = None,
     ) -> StyleGuideIngestionRunSnapshot:
         async with self._session_factory() as session:
             async with session.begin():
@@ -427,6 +429,8 @@ class StyleGuideRepository:
                 run.extraction_steps_json = _upsert_layout_parse_step(
                     steps=run.extraction_steps_json,
                     parser_resource_id=parser_resource_id,
+                    mode=mode,
+                    latency_ms=latency_ms,
                     operation_id=operation_id,
                     output_uri=output_uri,
                 )
@@ -1285,8 +1289,10 @@ def _upsert_layout_parse_step(
     *,
     steps: Any | None,
     parser_resource_id: str,
-    operation_id: str,
-    output_uri: str,
+    mode: str,
+    latency_ms: int | None,
+    operation_id: str | None,
+    output_uri: str | None,
 ) -> list[dict[str, Any]]:
     normalized_steps = [dict(step) for step in steps] if isinstance(steps, list) else []
 
@@ -1299,11 +1305,17 @@ def _upsert_layout_parse_step(
         "step_kind": "LAYOUT_PARSE",
         "provider": "google_document_ai",
         "processor_kind": "layout_parser",
+        "mode": mode,
         "processor_resource_name": parser_resource_id,
-        "provider_job_id": operation_id,
-        "output_uri": output_uri,
-        "status": "RUNNING" if existing_step is None else "SUCCEEDED",
+        "status": "SUCCEEDED" if mode == "online" or existing_step is not None else "RUNNING",
     }
+
+    if latency_ms is not None:
+        step_payload["latency_ms"] = latency_ms
+    if operation_id is not None:
+        step_payload["provider_job_id"] = operation_id
+    if output_uri is not None:
+        step_payload["output_uri"] = output_uri
 
     processor_version = PurePosixPath(parser_resource_id).name
     if processor_version:

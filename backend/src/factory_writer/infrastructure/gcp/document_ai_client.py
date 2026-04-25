@@ -1,4 +1,3 @@
-import asyncio
 from time import perf_counter
 from typing import Any, cast
 
@@ -18,7 +17,6 @@ from factory_writer.application.ports.style_guide_ingestion import (
     StyleGuideChunkCandidate,
 )
 from factory_writer.core.config import Settings
-from factory_writer.infrastructure.gcp.gcs_uri import parse_gcs_uri
 
 _STYLE_GUIDE_CHUNK_SIZE_TOKENS = 1000
 
@@ -34,73 +32,31 @@ class DocumentAIClient:
             client_options=ClientOptions(api_endpoint=api_endpoint)
         )
 
-    async def start_document_layout_parse(
+    async def parse_document_layout(
         self,
         input_uri: str,
-        output_uri: str,
     ) -> DocumentParserProcessResult:
         processor_name = self._processor_name()
 
-        operation = await self._document_client.batch_process_documents(
-            request=documentai.BatchProcessRequest(
-                name=processor_name,
-                input_documents=documentai.BatchDocumentsInputConfig(
-                    gcs_documents=documentai.GcsDocuments(
-                        documents=[
-                            documentai.GcsDocument(
-                                gcs_uri=input_uri,
-                                mime_type="application/pdf",
-                            )
-                        ]
-                    )
-                ),
-                document_output_config=documentai.DocumentOutputConfig(
-                    gcs_output_config=documentai.DocumentOutputConfig.GcsOutputConfig(
-                        gcs_uri=output_uri
-                    )
-                ),
-                # Le style guide est toujours un PDF d'une page.
-                # On préfère des chunks larges et peu nombreux, avec les headings ancetres
-                # pour garder le contexte de section dans chaque chunk.
-                process_options=documentai.ProcessOptions(
-                    layout_config=documentai.ProcessOptions.LayoutConfig(
-                        chunking_config=documentai.ProcessOptions.LayoutConfig.ChunkingConfig(
-                            chunk_size=_STYLE_GUIDE_CHUNK_SIZE_TOKENS,
-                            include_ancestor_headings=True,
-                        )
-                    )
-                ),
-            )
+        request = documentai.ProcessRequest(
+            name=processor_name,
+            gcs_document=documentai.GcsDocument(
+                gcs_uri=input_uri,
+                mime_type="application/pdf",
+            ),
+            skip_human_review=True,
+            process_options=_style_guide_layout_process_options(),
         )
+
+        started = perf_counter()
+        response = await self._document_client.process_document(request=request)
+        latency_ms = int((perf_counter() - started) * 1000)
 
         return DocumentParserProcessResult(
             processor_resource_name=processor_name,
-            operation_id=operation.operation.name,
-            output_uri=output_uri,
+            chunks=_document_to_chunks(response.document),
+            latency_ms=latency_ms,
         )
-
-    async def check_document_layout_parse(
-        self,
-        operation_id: str,
-        output_uri: str,
-    ) -> DocumentParserProcessResult | None:
-        operation = await self._document_client.transport.operations_client.get_operation(
-            name=operation_id
-        )
-        if not operation.done:
-            return None
-        if operation.error.code != 0:
-            raise RuntimeError(f"Document AI error: {operation.error.message}")
-
-        metadata = documentai.BatchProcessMetadata.deserialize(operation.metadata.value)
-        return DocumentParserProcessResult(
-            processor_resource_name=self._processor_name(),
-            operation_id=operation_id,
-            output_uri=_resolve_output_uri(metadata, output_uri),
-        )
-
-    async def extract_chunks(self, output_uri: str) -> list[StyleGuideChunkCandidate]:
-        return await asyncio.to_thread(_extract_chunks_sync, output_uri)
 
     async def classify_technical_document(
         self,
@@ -226,6 +182,47 @@ class DocumentAIClient:
         )
 
 
+def _style_guide_layout_process_options() -> documentai.ProcessOptions:
+    return documentai.ProcessOptions(
+        layout_config=documentai.ProcessOptions.LayoutConfig(
+            chunking_config=documentai.ProcessOptions.LayoutConfig.ChunkingConfig(
+                chunk_size=_STYLE_GUIDE_CHUNK_SIZE_TOKENS,
+                include_ancestor_headings=True,
+            )
+        )
+    )
+
+
+def _document_to_chunks(document: documentai.Document) -> list[StyleGuideChunkCandidate]:
+    chunked_document = getattr(document, "chunked_document", None)
+    raw_chunks = list(getattr(chunked_document, "chunks", []) or [])
+    chunk_candidates: list[StyleGuideChunkCandidate] = []
+
+    for chunk_index, raw_chunk in enumerate(raw_chunks, start=1):
+        contenu = _normalize_text(getattr(raw_chunk, "content", ""))
+
+        if not contenu:
+            continue
+
+        provider_id = _normalize_text(getattr(raw_chunk, "chunk_id", "")) or f"chunk-{chunk_index}"
+        page_span = getattr(raw_chunk, "page_span", None)
+        page_start = _to_int(getattr(page_span, "page_start", None))
+        page_end = _to_int(getattr(page_span, "page_end", None)) or page_start
+
+        chunk_candidates.append(
+            StyleGuideChunkCandidate(
+                provider_id=provider_id,
+                index_chunk=chunk_index,
+                contenu=contenu,
+                page_start=page_start,
+                page_end=page_end,
+                evidence_json={"source": "chunk"},
+            )
+        )
+
+    return chunk_candidates
+
+
 def _resolve_document_type(document: documentai.Document) -> tuple[str, float | None]:
     candidates: list[tuple[str, float | None]] = []
     for entity in document.entities:
@@ -347,17 +344,6 @@ def _to_float(value: object) -> float | None:
     return None
 
 
-def _extract_chunks_sync(output_uri: str) -> list[StyleGuideChunkCandidate]:
-    result_uri = parse_gcs_uri(output_uri)
-
-    document = documentai_toolbox.Document.from_gcs(
-        gcs_bucket_name=result_uri.bucket_name,
-        gcs_prefix=result_uri.object_name,
-    )
-
-    return _toolbox_document_to_chunks(document)
-
-
 def _toolbox_document_to_chunks(
     document: documentai_toolbox.Document,
 ) -> list[StyleGuideChunkCandidate]:
@@ -403,23 +389,3 @@ def _normalize_text(value: object) -> str:
     if value is None:
         return ""
     return " ".join(str(value).split())
-
-
-def _resolve_output_uri(
-    metadata: documentai.BatchProcessMetadata,
-    fallback_output_uri: str,
-) -> str:
-    if metadata.state != documentai.BatchProcessMetadata.State.SUCCEEDED:
-        message = metadata.state_message or f"Document AI batch state: {metadata.state.name}"
-        raise RuntimeError(message)
-
-    statuses = list(metadata.individual_process_statuses)
-    if not statuses:
-        return fallback_output_uri
-
-    first_status = statuses[0]
-    if first_status.status.code != 0:
-        raise RuntimeError(first_status.status.message)
-
-    output_destination = str(first_status.output_gcs_destination or "")
-    return output_destination or fallback_output_uri

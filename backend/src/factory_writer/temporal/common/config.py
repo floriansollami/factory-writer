@@ -42,11 +42,6 @@ DOC_AI_RETRY_POLICY = RetryPolicy(
     non_retryable_error_types=NON_RETRYABLE_ERRORS,
 )
 
-DOC_AI_START_RETRY_POLICY = RetryPolicy(
-    maximum_attempts=1,
-    non_retryable_error_types=NON_RETRYABLE_ERRORS,
-)
-
 LLM_RETRY_POLICY = RetryPolicy(
     initial_interval=timedelta(seconds=2),
     backoff_coefficient=2.0,
@@ -59,4 +54,3 @@ DB_ACTIVITY_TIMEOUT = timedelta(seconds=15)
 SHORT_ACTIVITY_TIMEOUT = timedelta(minutes=1)
 MEDIUM_ACTIVITY_TIMEOUT = timedelta(minutes=5)
 LONG_ACTIVITY_TIMEOUT = timedelta(minutes=15)
-DOC_AI_POLL_INTERVAL = timedelta(seconds=10)

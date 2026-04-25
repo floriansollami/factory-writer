@@ -9,7 +9,6 @@ from .document_parser import (
     StyleGuideChunkCandidate,
     StyleGuideDocumentParserPort,
     StyleGuideFragmentCandidate,
-    StyleGuideLayoutJobResult,
     StyleGuideLayoutParseResult,
 )
 from .draft_pack_generator import (
@@ -46,7 +45,6 @@ __all__ = [
     "StyleGuideChunkCandidate",
     "StyleGuideFragmentCandidate",
     "StyleGuideIngestionInput",
-    "StyleGuideLayoutJobResult",
     "StyleGuideLayoutParseResult",
     "StyleGuideRepositoryPort",
     "StyleGuideIngestionRunSnapshot",

@@ -19,14 +19,12 @@ from factory_writer.application.ports.style_guide_ingestion import (
     StyleGuideDraftPackSnapshot,
     StyleGuideIngestionConfigPort,
     StyleGuideIngestionInput,
-    StyleGuideLayoutJobResult,
     StyleGuideLayoutParseResult,
     StyleGuideRepositoryPort,
     StyleGuideStoragePort,
     StyleGuideWorkflowStarterPort,
 )
 from factory_writer.application.services.document_storage_paths import (
-    build_document_ai_parser_result_uri,
     build_style_guide_pdf_object_name,
 )
 from factory_writer.domain.document_ingestion_types import (
@@ -370,10 +368,10 @@ class StyleGuideIngestionService:
 
         return str(pack.id)
 
-    async def start_document_layout_parse(
+    async def parse_document_layout(
         self,
         payload: StyleGuideIngestionInput,
-    ) -> StyleGuideLayoutJobResult:
+    ) -> StyleGuideLayoutParseResult:
         storage = self._require_storage()
         parser = self._require_document_parser()
 
@@ -384,103 +382,53 @@ class StyleGuideIngestionService:
             storage_uri=payload.storage_uri,
         )
 
-        # La generation GCS distingue deux PDFs différents même s'ils ont le même nom.
-        document_source_file = await storage.get_object_file(payload.storage_uri)
-
-        if document_source_file is None:
+        if await storage.get_object_file(payload.storage_uri) is None:
             raise FileNotFoundError(f"Objet Cloud Storage introuvable: {payload.storage_uri}")
 
         # TODO POC+ : ajouter un garde anti double lancement Document AI
         # en cas de replay Temporal après crash du worker.
 
-        # on construit l’URI GCS du dossier de sortie technique où Document AI va écrire le résultat de parsing pour ce PDF précis et cette version précise du PDF
-
-        parser_result_uri = build_document_ai_parser_result_uri(
+        parse_result = await parser.parse_document_layout(
             input_uri=payload.storage_uri,
-            extraction_type="style-guide-layout",
-            document_source_id=payload.document_source_id,
-            generation=document_source_file.generation,
-        )
-
-        parse_result = await parser.start_document_layout_parse(
-            input_uri=payload.storage_uri,
-            output_uri=parser_result_uri,
         )
 
         logger.info(
-            "Style guide | Document AI | job soumis",
+            "Style guide | Document AI | analyse terminée",
             ingestion_run_id=str(payload.ingestion_run_id),
             document_source_id=str(payload.document_source_id),
-            operation_id=parse_result.operation_id,
             parser_resource_name=parse_result.processor_resource_name,
-            output_uri=parse_result.output_uri,
+            latency_ms=parse_result.latency_ms,
+            chunk_count=len(parse_result.chunks),
         )
 
         await self._repository.record_layout_parse_result(
             run_id=payload.ingestion_run_id,
             parser_resource_id=parse_result.processor_resource_name,
-            operation_id=parse_result.operation_id,
-            output_uri=parse_result.output_uri,
+            mode="online",
+            latency_ms=parse_result.latency_ms,
         )
 
         logger.info(
-            "Style guide | Document AI | job enregistré en base",
+            "Style guide | Document AI | résultat enregistré en base",
             ingestion_run_id=str(payload.ingestion_run_id),
             document_source_id=str(payload.document_source_id),
-            operation_id=parse_result.operation_id,
+            latency_ms=parse_result.latency_ms,
         )
 
-        return StyleGuideLayoutJobResult(
-            collection_id=payload.collection_id,
-            document_source_id=payload.document_source_id,
-            ingestion_run_id=payload.ingestion_run_id,
-            operation_id=parse_result.operation_id,
-            output_uri=parse_result.output_uri,
-        )
-
-    async def check_document_layout_parse(
-        self,
-        payload: StyleGuideLayoutJobResult,
-    ) -> StyleGuideLayoutParseResult | None:
-        storage = self._require_storage()
-        parser = self._require_document_parser()
-
-        # vérifie que le job Document AI est terminé avec succès et fournit l’output_uri.
-        parse_result = await parser.check_document_layout_parse(
-            operation_id=payload.operation_id,
-            output_uri=payload.output_uri,
-        )
-
-        # dans ce cas on ne fait rien et on laisse le workflow réessayer plus tard
-        if parse_result is None:
-            return None
-
-        # vérifie qu’un artefact réel existe bien dans GCS sous cet output_uri
-        if not await storage.has_objects(parse_result.output_uri):
-            raise RuntimeError(
-                f"Document AI n'a produit aucun JSON exploitable sous {parse_result.output_uri}"
-            )
-
-        #  enregistre en base que l’étape de layout parse a abouti pour ce run.
-        await self._repository.record_layout_parse_result(
-            run_id=payload.ingestion_run_id,
-            parser_resource_id=parse_result.processor_resource_name,
-            operation_id=parse_result.operation_id,
-            output_uri=parse_result.output_uri,
-        )
+        if not parse_result.chunks:
+            raise RuntimeError("Aucun chunk exploitable n'a ete extrait par Document AI.")
 
         return StyleGuideLayoutParseResult(
             collection_id=payload.collection_id,
             document_source_id=payload.document_source_id,
             ingestion_run_id=payload.ingestion_run_id,
-            output_uri=parse_result.output_uri,
+            chunks=tuple(parse_result.chunks),
         )
 
     async def generate_draft_pack(
         self,
         payload: StyleGuideLayoutParseResult,
     ) -> StyleGuideDraftPackSnapshot:
-        parser = self._require_document_parser()
         prompt_registry = self._require_prompt_registry()
         draft_pack_generator = self._require_draft_pack_generator()
 
@@ -488,7 +436,7 @@ class StyleGuideIngestionService:
             "Style guide | Draft pack | préparation",
             ingestion_run_id=str(payload.ingestion_run_id),
             document_source_id=str(payload.document_source_id),
-            output_uri=payload.output_uri,
+            chunk_count=len(payload.chunks),
         )
 
         try:
@@ -509,9 +457,7 @@ class StyleGuideIngestionService:
                 current_step=CurrentStep.LLM_DRAFT_PACK.value,
             )
 
-            # on lit la sortie parser de Document AI dans GCS
-            # et on la convertit en chunks applicatifs exploitables par le prompt LLM
-            chunks = await parser.extract_chunks(payload.output_uri)
+            chunks = list(payload.chunks)
 
             logger.info(
                 "Style guide | Draft pack | chunks extraits",
@@ -522,9 +468,7 @@ class StyleGuideIngestionService:
             )
 
             if not chunks:
-                raise RuntimeError(
-                    f"Aucun chunk exploitable n'a ete extrait depuis {payload.output_uri}"
-                )
+                raise RuntimeError("Aucun chunk exploitable n'a ete extrait par Document AI.")
 
             taxonomies = await self._repository.list_taxonomies()
 
