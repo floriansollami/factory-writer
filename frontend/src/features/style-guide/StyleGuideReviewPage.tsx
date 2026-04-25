@@ -1,13 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowRight,
-  ArrowUpRight,
   Flower2,
   Loader2,
   ShieldCheck,
 } from "lucide-react";
 import type { ReactNode } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
 import { Badge } from "@/components/ui/badge";
@@ -28,24 +27,25 @@ import { cn } from "@/lib/utils";
 
 const navItems = [
   "Accueil admin",
-  "Fiches produit",
   "Guide de style",
-  "Dossiers techniques",
+  "Fiches produit",
   "Signaux marketing",
-  "Évaluations",
-  "Paramètres",
 ];
 
 type StyleGuideReviewPageProps = {
   onBack: () => void;
   onOpenAdminHome: () => void;
+  onOpenProductSheets: () => void;
 };
 
 export function StyleGuideReviewPage({
   onBack,
   onOpenAdminHome,
+  onOpenProductSheets,
 }: StyleGuideReviewPageProps) {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const returnTo = sanitizeReturnTo(searchParams.get("returnTo"));
   const { data, isPending, error } = useQuery({
     queryKey: ["style-guide-overview"],
     queryFn: getStyleGuideOverview,
@@ -53,13 +53,17 @@ export function StyleGuideReviewPage({
 
   useEffect(() => {
     if (!isPending && !error && data?.activePack === null) {
-      navigate("/style-guide", { replace: true });
+      navigate(styleGuidePathForReturnTo(returnTo), { replace: true });
     }
-  }, [data?.activePack, error, isPending, navigate]);
+  }, [data?.activePack, error, isPending, navigate, returnTo]);
 
   if (isPending) {
     return (
-      <StyleGuideReviewShell onBack={onBack} onOpenAdminHome={onOpenAdminHome}>
+      <StyleGuideReviewShell
+        onBack={onBack}
+        onOpenAdminHome={onOpenAdminHome}
+        onOpenProductSheets={onOpenProductSheets}
+      >
         <div className="grid min-h-[70vh] place-items-center text-[var(--color-forest)]">
           <Loader2 className="size-10 animate-spin" aria-label="Chargement" />
         </div>
@@ -69,7 +73,11 @@ export function StyleGuideReviewPage({
 
   if (error) {
     return (
-      <StyleGuideReviewShell onBack={onBack} onOpenAdminHome={onOpenAdminHome}>
+      <StyleGuideReviewShell
+        onBack={onBack}
+        onOpenAdminHome={onOpenAdminHome}
+        onOpenProductSheets={onOpenProductSheets}
+      >
         <Card className="max-w-lg">
           <CardTitle>Impossible de charger la revue des règles</CardTitle>
           <p className="mt-3 text-[var(--color-muted)]">{error.message}</p>
@@ -83,7 +91,11 @@ export function StyleGuideReviewPage({
 
   if (data.activePack === null) {
     return (
-      <StyleGuideReviewShell onBack={onBack} onOpenAdminHome={onOpenAdminHome}>
+      <StyleGuideReviewShell
+        onBack={onBack}
+        onOpenAdminHome={onOpenAdminHome}
+        onOpenProductSheets={onOpenProductSheets}
+      >
         <div className="grid min-h-[70vh] place-items-center text-[var(--color-forest)]">
           <Loader2 className="size-10 animate-spin" aria-label="Redirection" />
         </div>
@@ -92,7 +104,11 @@ export function StyleGuideReviewPage({
   }
 
   return (
-    <StyleGuideReviewShell onBack={onBack} onOpenAdminHome={onOpenAdminHome}>
+    <StyleGuideReviewShell
+      onBack={onBack}
+      onOpenAdminHome={onOpenAdminHome}
+      onOpenProductSheets={onOpenProductSheets}
+    >
       <StyleGuideReviewWorkspace
         initialRules={data.rules}
         pack={data.activePack}
@@ -105,10 +121,12 @@ function StyleGuideReviewShell({
   children,
   onBack,
   onOpenAdminHome,
+  onOpenProductSheets,
 }: {
   children: ReactNode;
   onBack: () => void;
   onOpenAdminHome: () => void;
+  onOpenProductSheets: () => void;
 }) {
   return (
     <main className="min-h-screen bg-[var(--color-ivory)] text-[var(--color-ink)]">
@@ -140,20 +158,22 @@ function StyleGuideReviewShell({
                     item === "Guide de style" &&
                       "bg-white text-[var(--color-forest)] hover:bg-white hover:text-[var(--color-forest)]",
                   )}
-                  onClick={
-                    item === "Accueil admin"
-                      ? onOpenAdminHome
-                      : item === "Guide de style"
-                        ? onBack
-                        : undefined
-                  }
+                  onClick={navigationHandlerForReviewItem({
+                    item,
+                    onBack,
+                    onOpenAdminHome,
+                    onOpenProductSheets,
+                  })}
                 >
                   {item}
                   {item === "Accueil admin" ? (
                     <ArrowRight className="size-4" />
                   ) : null}
+                  {item === "Fiches produit" ? (
+                    <ArrowRight className="size-4" />
+                  ) : null}
                   {item === "Guide de style" ? (
-                    <ArrowUpRight className="size-4" />
+                    <ArrowRight className="size-4" />
                   ) : null}
                 </button>
               ))}
@@ -176,6 +196,7 @@ function StyleGuideReviewWorkspace({
 }) {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  const returnTo = sanitizeReturnTo(searchParams.get("returnTo"));
   const queryClient = useQueryClient();
   const [rules, setRules] = useState(initialRules);
   const isRuntimePackActive = pack.status === "ACTIF";
@@ -189,9 +210,9 @@ function StyleGuideReviewWorkspace({
 
   useEffect(() => {
     if (!isEditable && isApprovalOpen) {
-      navigate("/style-guide", { replace: true });
+      navigate(returnTo ?? "/style-guide", { replace: true });
     }
-  }, [isApprovalOpen, isEditable, navigate]);
+  }, [isApprovalOpen, isEditable, navigate, returnTo]);
 
   const patchRuleMutation = useMutation({
     mutationFn: ({
@@ -211,7 +232,7 @@ function StyleGuideReviewWorkspace({
   const approvePackMutation = useMutation({
     mutationFn: () => approveStylePack(pack.id),
     onSuccess: () => {
-      navigate("/style-guide", { replace: true });
+      navigate(returnTo ?? "/style-guide", { replace: true });
       void queryClient.invalidateQueries({
         queryKey: ["style-guide-overview"],
       });
@@ -228,10 +249,8 @@ function StyleGuideReviewWorkspace({
     (rule) => rule.decisionEditoriale === "DESACTIVEE",
   ).length;
   const canActivate = isEditable && rules.length > 0 && pendingRules === 0;
-  const isPendingMutation = useMemo(
-    () => patchRuleMutation.isPending || approvePackMutation.isPending,
-    [approvePackMutation.isPending, patchRuleMutation.isPending],
-  );
+  const isPendingMutation =
+    patchRuleMutation.isPending || approvePackMutation.isPending;
   const mutationError =
     patchRuleMutation.error?.message ??
     approvePackMutation.error?.message ??
@@ -341,7 +360,9 @@ function StyleGuideReviewWorkspace({
             </div>
             <Button
               disabled={isPendingMutation}
-              onClick={() => setSearchParams({ dialog: "approve" })}
+              onClick={() =>
+                setSearchParams(buildStyleGuideReviewSearchParams(returnTo, { dialog: "approve" }))
+              }
             >
               <ShieldCheck className="size-4" />
               Activer le pack
@@ -356,7 +377,9 @@ function StyleGuideReviewWorkspace({
           disabledRules={disabledRules}
           isPending={approvePackMutation.isPending}
           onApprove={() => approvePackMutation.mutate()}
-          onClose={() => setSearchParams({}, { replace: true })}
+          onClose={() =>
+            setSearchParams(buildStyleGuideReviewSearchParams(returnTo), { replace: true })
+          }
           totalRules={rules.length}
         />
       ) : null}
@@ -448,6 +471,32 @@ function packStatusTone(
   return "warning";
 }
 
+function navigationHandlerForReviewItem({
+  item,
+  onBack,
+  onOpenAdminHome,
+  onOpenProductSheets,
+}: {
+  item: string;
+  onBack: () => void;
+  onOpenAdminHome: () => void;
+  onOpenProductSheets: () => void;
+}) {
+  if (item === "Accueil admin") {
+    return onOpenAdminHome;
+  }
+
+  if (item === "Fiches produit") {
+    return onOpenProductSheets;
+  }
+
+  if (item === "Guide de style") {
+    return onBack;
+  }
+
+  return undefined;
+}
+
 function packStatusLabel(
   status: NonNullable<StyleGuideOverview["activePack"]>["status"],
 ) {
@@ -458,4 +507,23 @@ function packStatusLabel(
     return "Archivé";
   }
   return "À relire";
+}
+
+function sanitizeReturnTo(value: string | null) {
+  if (value !== null && value.startsWith("/product-sheets/") && !value.startsWith("//")) {
+    return value;
+  }
+
+  return null;
+}
+
+function buildStyleGuideReviewSearchParams(
+  returnTo: string | null,
+  values: Record<string, string> = {},
+) {
+  return returnTo === null ? values : { ...values, returnTo };
+}
+
+function styleGuidePathForReturnTo(returnTo: string | null) {
+  return returnTo === null ? "/style-guide" : `/style-guide?returnTo=${encodeURIComponent(returnTo)}`;
 }

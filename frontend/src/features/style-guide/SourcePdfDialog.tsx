@@ -208,9 +208,13 @@ export function SourcePdfPreview({
               <Page
                 key={pageRenderKey}
                 pageNumber={boundedCurrentPage}
-                customTextRenderer={({ itemIndex, str }) =>
-                  highlightedItemIndexes.has(itemIndex) ? `<mark>${escapeHtml(str)}</mark>` : str
-                }
+                customTextRenderer={({ itemIndex, str }) => {
+                  const safeText = escapeHtml(str);
+
+                  return highlightedItemIndexes.has(itemIndex)
+                    ? `<mark>${safeText}</mark>`
+                    : safeText;
+                }}
                 onGetTextSuccess={(textContent) =>
                   setHighlightedItemIndexes(findMatchingItemIndexes(textContent, excerptText))
                 }

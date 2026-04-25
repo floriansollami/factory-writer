@@ -22,7 +22,7 @@ const queryClient = new QueryClient({
 });
 
 async function enableMocks() {
-  if (import.meta.env.VITE_USE_MSW === "false") {
+  if (import.meta.env.VITE_USE_MSW !== "true") {
     await disableMocks();
     return;
   }
