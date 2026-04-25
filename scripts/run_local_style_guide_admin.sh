@@ -5,7 +5,9 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 STATE_DIR="$ROOT_DIR/.tmp/style-guide-admin"
 LOG_DIR="$STATE_DIR/logs"
 BACKEND_PID_FILE="$STATE_DIR/backend.pid"
-WORKER_PID_FILE="$STATE_DIR/worker.pid"
+STYLE_WORKER_PID_FILE="$STATE_DIR/worker-style.pid"
+PRODUCT_WORKER_PID_FILE="$STATE_DIR/worker-product.pid"
+LEGACY_WORKER_PID_FILE="$STATE_DIR/worker.pid"
 FRONTEND_PID_FILE="$STATE_DIR/frontend.pid"
 ROOT_ENV_FILE="${LOCAL_ENV_FILE:-$ROOT_DIR/.env.local}"
 BACKEND_ENV_FILE="$ROOT_DIR/backend/.env"
@@ -220,6 +222,55 @@ engine.dispose()
 PY
 }
 
+reset_local_poc_state() {
+  cd "$ROOT_DIR/backend"
+  DB__URL="$DB_URL" uv run python - <<'PY'
+import os
+
+import psycopg
+from psycopg import sql
+from sqlalchemy.engine import make_url
+
+TABLES = [
+    "product_context_snapshot",
+    "style_rule",
+    "style_pack",
+    "technical_review_case",
+    "technical_fact_candidate",
+    "technical_fact",
+    "document_ingestion_run",
+    "document_source",
+    "document_collection",
+    "product",
+]
+
+url = make_url(os.environ["DB__URL"]).set(drivername="postgresql")
+dsn = url.render_as_string(hide_password=False)
+
+with psycopg.connect(dsn) as conn:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT tablename
+            FROM pg_tables
+            WHERE schemaname = 'public'
+              AND tablename = ANY(%s)
+            ORDER BY array_position(%s::text[], tablename)
+            """,
+            (TABLES, TABLES),
+        )
+        existing_tables = [row[0] for row in cur.fetchall()]
+
+        if existing_tables:
+            cur.execute(
+                sql.SQL("TRUNCATE TABLE {} RESTART IDENTITY CASCADE").format(
+                    sql.SQL(", ").join(sql.Identifier(table) for table in existing_tables)
+                )
+            )
+    conn.commit()
+PY
+}
+
 run_migrations() {
   local migration_log="$LOG_DIR/alembic.log"
 
@@ -326,7 +377,7 @@ start_backend() {
       GCP__DOCUMENT_AI_PROCESSOR_ID="$DOCUMENT_AI_PROCESSOR_ID" \
       GCP__STYLE_GUIDE_BUCKET_NAME="$STYLE_GUIDE_BUCKET_NAME" \
       GCP__STORAGE_EMULATOR_HOST="$STORAGE_EMULATOR_HOST" \
-      bash -lc "exec uv run uvicorn factory_writer.main:app --app-dir src --host 127.0.0.1 --port ${BACKEND_PORT}" \
+      bash -lc "exec uv run uvicorn factory_writer.main:app --app-dir src --host 127.0.0.1 --port ${BACKEND_PORT} --reload" \
       >"$LOG_DIR/backend.log" 2>&1 &
     echo $! >"$BACKEND_PID_FILE"
   )
@@ -335,7 +386,12 @@ start_backend() {
 }
 
 start_worker() {
-  stop_managed_process "$WORKER_PID_FILE"
+  local worker_role="$1"
+  local pid_file="$2"
+  local log_file="$3"
+  local worker_label="$4"
+
+  stop_managed_process "$pid_file"
 
   (
     cd "$ROOT_DIR/backend"
@@ -345,20 +401,27 @@ start_worker() {
       TEMPORAL__ADDRESS="$TEMPORAL_ADDRESS" \
       TEMPORAL__NAMESPACE="$TEMPORAL_NAMESPACE" \
       TEMPORAL__API_KEY="" \
-      TEMPORAL__WORKER_ROLE="$TEMPORAL_WORKER_ROLE" \
+      TEMPORAL__WORKER_ROLE="$worker_role" \
       TEMPORAL__DEPLOYMENT_NAME="$TEMPORAL_DEPLOYMENT_NAME" \
       GCP__PROJECT_ID="$GCP_PROJECT_ID" \
       GCP__DOCUMENT_AI_PROCESSOR_ID="$DOCUMENT_AI_PROCESSOR_ID" \
+      GCP__DOCUMENT_AI_CLASSIFIER_PROCESSOR_ID="${GCP__DOCUMENT_AI_CLASSIFIER_PROCESSOR_ID:-}" \
+      GCP__DOCUMENT_AI_CLASSIFIER_PROCESSOR_VERSION="${GCP__DOCUMENT_AI_CLASSIFIER_PROCESSOR_VERSION:-}" \
+      GCP__DOCUMENT_AI_OCR_PROCESSOR_ID="${GCP__DOCUMENT_AI_OCR_PROCESSOR_ID:-}" \
+      GCP__DOCUMENT_AI_OCR_PROCESSOR_VERSION="${GCP__DOCUMENT_AI_OCR_PROCESSOR_VERSION:-}" \
+      GCP__DOCUMENT_AI_EXTRACTOR_PROCESSOR_ID="${GCP__DOCUMENT_AI_EXTRACTOR_PROCESSOR_ID:-}" \
+      GCP__DOCUMENT_AI_EXTRACTOR_PROCESSOR_VERSION="${GCP__DOCUMENT_AI_EXTRACTOR_PROCESSOR_VERSION:-}" \
       GCP__STYLE_GUIDE_BUCKET_NAME="$STYLE_GUIDE_BUCKET_NAME" \
+      GCP__TECHNICAL_DOSSIER_BUCKET_NAME="${GCP__TECHNICAL_DOSSIER_BUCKET_NAME:-}" \
       GCP__STORAGE_EMULATOR_HOST="$STORAGE_EMULATOR_HOST" \
       bash -lc "exec uv run python -m factory_writer.temporal.worker" \
-      >"$LOG_DIR/worker.log" 2>&1 &
-    echo $! >"$WORKER_PID_FILE"
+      >"$log_file" 2>&1 &
+    echo $! >"$pid_file"
   )
 
   sleep 2
-  if ! kill -0 "$(cat "$WORKER_PID_FILE")" >/dev/null 2>&1; then
-    echo "Le worker style guide s'est arrêté au démarrage. Voir $LOG_DIR/worker.log" >&2
+  if ! kill -0 "$(cat "$pid_file")" >/dev/null 2>&1; then
+    echo "Le worker ${worker_label} s'est arrêté au démarrage. Voir $log_file" >&2
     exit 1
   fi
 }
@@ -447,14 +510,18 @@ script_log db "Synchronisation de l'environnement Python, migrations et seed tax
 (
   cd "$ROOT_DIR/backend"
   uv sync --extra dev >/dev/null
+  reset_local_poc_state
   run_migrations
   DB__URL="$DB_URL" uv run python -m factory_writer.scripts.seed_taxonomie >/dev/null
 )
 
 script_log backend "Démarrage de l'API locale..."
 start_backend
+stop_managed_process "$LEGACY_WORKER_PID_FILE"
 script_log worker "Démarrage du worker style-guide-ingestion..."
-start_worker
+start_worker "style-guide-ingestion" "$STYLE_WORKER_PID_FILE" "$LOG_DIR/worker-style.log" "style-guide-ingestion"
+script_log worker "Démarrage du worker product-lifecycle..."
+start_worker "product-lifecycle" "$PRODUCT_WORKER_PID_FILE" "$LOG_DIR/worker-product.log" "product-lifecycle"
 script_log frontend "Démarrage du frontend local..."
 start_frontend
 
@@ -465,7 +532,7 @@ Frontend: http://127.0.0.1:${FRONTEND_PORT}
 Backend:  http://127.0.0.1:${BACKEND_PORT}
 Health:   http://127.0.0.1:${BACKEND_PORT}/health
 Temporal: http://127.0.0.1:${TEMPORAL_UI_PORT}
-Worker:   style-guide-ingestion (local)
+Workers:  style-guide-ingestion, product-lifecycle (local)
 Bucket:   ${STYLE_GUIDE_BUCKET_NAME}
 Storage:  ${STYLE_GUIDE_STORAGE_MODE}
 Processor: ${DOCUMENT_AI_PROCESSOR_ID}
@@ -473,7 +540,8 @@ Mode frontend: ${FRONTEND_MODE}
 
 Logs:
 - $LOG_DIR/backend.log
-- $LOG_DIR/worker.log
+- $LOG_DIR/worker-style.log
+- $LOG_DIR/worker-product.log
 - $LOG_DIR/frontend.log
 
 Stop:

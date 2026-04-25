@@ -7,7 +7,11 @@ LOG_DIR="$ROOT_DIR/.tmp/style-guide-admin/logs"
 STREAMER_PID_FILE="$STATE_DIR/log-stream.pid"
 
 mkdir -p "$STATE_DIR" "$LOG_DIR"
-touch "$LOG_DIR/backend.log" "$LOG_DIR/worker.log" "$LOG_DIR/frontend.log"
+touch \
+  "$LOG_DIR/backend.log" \
+  "$LOG_DIR/worker-style.log" \
+  "$LOG_DIR/worker-product.log" \
+  "$LOG_DIR/frontend.log"
 
 TAIL_FROM_START="${TAIL_FROM_START:-false}"
 
@@ -47,12 +51,14 @@ echo "$$" >"$STREAMER_PID_FILE"
 
 if [[ -t 1 ]]; then
   COLOR_BACKEND=$'\033[1;34m'
-  COLOR_WORKER=$'\033[1;32m'
+  COLOR_STYLE_WORKER=$'\033[1;32m'
+  COLOR_PRODUCT_WORKER=$'\033[1;33m'
   COLOR_FRONTEND=$'\033[1;35m'
   COLOR_RESET=$'\033[0m'
 else
   COLOR_BACKEND=""
-  COLOR_WORKER=""
+  COLOR_STYLE_WORKER=""
+  COLOR_PRODUCT_WORKER=""
   COLOR_FRONTEND=""
   COLOR_RESET=""
 fi
@@ -79,13 +85,19 @@ stream_file() {
 
 stream_file "backend" "$COLOR_BACKEND" "$LOG_DIR/backend.log" &
 BACKEND_STREAM_PID=$!
-stream_file "worker" "$COLOR_WORKER" "$LOG_DIR/worker.log" &
-WORKER_STREAM_PID=$!
+stream_file "style" "$COLOR_STYLE_WORKER" "$LOG_DIR/worker-style.log" &
+STYLE_WORKER_STREAM_PID=$!
+stream_file "product" "$COLOR_PRODUCT_WORKER" "$LOG_DIR/worker-product.log" &
+PRODUCT_WORKER_STREAM_PID=$!
 stream_file "frontend" "$COLOR_FRONTEND" "$LOG_DIR/frontend.log" &
 FRONTEND_STREAM_PID=$!
 
 cleanup() {
-  kill "$BACKEND_STREAM_PID" "$WORKER_STREAM_PID" "$FRONTEND_STREAM_PID" >/dev/null 2>&1 || true
+  kill \
+    "$BACKEND_STREAM_PID" \
+    "$STYLE_WORKER_STREAM_PID" \
+    "$PRODUCT_WORKER_STREAM_PID" \
+    "$FRONTEND_STREAM_PID" >/dev/null 2>&1 || true
   if [[ -f "$STREAMER_PID_FILE" ]] && [[ "$(cat "$STREAMER_PID_FILE")" == "$$" ]]; then
     rm -f "$STREAMER_PID_FILE"
   fi
@@ -93,4 +105,8 @@ cleanup() {
 
 trap cleanup EXIT INT TERM
 
-wait "$BACKEND_STREAM_PID" "$WORKER_STREAM_PID" "$FRONTEND_STREAM_PID"
+wait \
+  "$BACKEND_STREAM_PID" \
+  "$STYLE_WORKER_STREAM_PID" \
+  "$PRODUCT_WORKER_STREAM_PID" \
+  "$FRONTEND_STREAM_PID"

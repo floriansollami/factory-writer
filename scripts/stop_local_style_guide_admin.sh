@@ -4,7 +4,9 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 STATE_DIR="$ROOT_DIR/.tmp/style-guide-admin"
 BACKEND_PID_FILE="$STATE_DIR/backend.pid"
-WORKER_PID_FILE="$STATE_DIR/worker.pid"
+LEGACY_WORKER_PID_FILE="$STATE_DIR/worker.pid"
+STYLE_WORKER_PID_FILE="$STATE_DIR/worker-style.pid"
+PRODUCT_WORKER_PID_FILE="$STATE_DIR/worker-product.pid"
 FRONTEND_PID_FILE="$STATE_DIR/frontend.pid"
 LOG_STREAM_PID_FILE="$STATE_DIR/log-stream.pid"
 ROOT_ENV_FILE="${LOCAL_ENV_FILE:-$ROOT_DIR/.env.local}"
@@ -78,7 +80,7 @@ reset_style_guide_state() {
   fi
 
   if ! command -v uv >/dev/null 2>&1; then
-    echo "Nettoyage style guide ignoré: commande 'uv' introuvable." >&2
+    echo "Nettoyage local ignoré: commande 'uv' introuvable." >&2
     return 1
   fi
 
@@ -92,6 +94,7 @@ from psycopg import sql
 from sqlalchemy.engine import make_url
 
 TABLES = [
+    "product_context_snapshot",
     "style_rule",
     "style_pack",
     "technical_review_case",
@@ -100,6 +103,7 @@ TABLES = [
     "document_ingestion_run",
     "document_source",
     "document_collection",
+    "product",
 ]
 
 url = make_url(os.environ["DB__URL"]).set(drivername="postgresql")
@@ -131,7 +135,7 @@ PY
     return 0
   fi
 
-  echo "Nettoyage style guide ignoré: impossible de joindre la base locale." >&2
+  echo "Nettoyage local ignoré: impossible de joindre la base locale." >&2
   return 1
 }
 
@@ -140,7 +144,9 @@ load_env_file_if_present "$ROOT_ENV_FILE"
 DB_URL="${DB__URL:-$DB_URL}"
 
 stop_managed_process "$BACKEND_PID_FILE"
-stop_managed_process "$WORKER_PID_FILE"
+stop_managed_process "$LEGACY_WORKER_PID_FILE"
+stop_managed_process "$STYLE_WORKER_PID_FILE"
+stop_managed_process "$PRODUCT_WORKER_PID_FILE"
 stop_managed_process "$FRONTEND_PID_FILE"
 stop_managed_process "$LOG_STREAM_PID_FILE"
 terminate_port_process_if_matches \
@@ -165,9 +171,9 @@ docker compose stop postgres temporal >/dev/null || true
 rm -rf "$STATE_DIR"
 
 if [[ "$cleanup_status" -eq 0 ]]; then
-  echo "Stack locale arrêtée et état style guide nettoyé."
+  echo "Stack locale arrêtée et état POC nettoyé."
 elif [[ "$cleanup_status" -eq 2 ]]; then
   echo "Stack locale arrêtée."
 else
-  echo "Stack locale arrêtée (nettoyage style guide ignoré)."
+  echo "Stack locale arrêtée (nettoyage local ignoré)."
 fi
