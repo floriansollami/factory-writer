@@ -110,11 +110,17 @@ BLUEPRINT -> cotes, plan, zones visuelles
 
 Si le dossier est simple, on peut sauter cette étape.
 
-## 3. Custom Extractor : transformer le document en facts métier
+## 3. Custom Extractors : transformer le document en facts métier
 
 Objectif : extraire des **facts typés**, pas seulement du texte.
 
-À partir des pages classées, le Custom Extractor cherche les champs définis dans notre schéma.
+À partir du type classé, le backend route chaque PDF vers le Custom Extractor adapté :
+
+- `TECHNICAL_SHEET` -> `fw-technical-sheet-extractor`
+- `MATERIAL_SPECIFICATION` -> `fw-material-spec-extractor`
+- `ASSEMBLY_NOTICE` -> `fw-assembly-notice-extractor`
+
+Les types `OUT_OF_SCOPE_DOCUMENT`, `MIXED_TECHNICAL_DOSSIER`, `UNKNOWN` ou trop peu confiants restent bloqués en contrôle qualité et ne partent pas en extraction.
 
 Exemple de sortie :
 
@@ -203,7 +209,7 @@ Débrouille-toi pour les trouver dans le document.
 Exemple :
 
 ```text
-Champ : dimension_width_cm
+Champ : dimension_width
 
 Description :
 Extraire la largeur du produit exactement comme elle est écrite dans la fiche technique.
@@ -220,7 +226,7 @@ Et proposer :
 
 ```json
 {
-  "dimension_width_cm": "190 cm"
+  "dimension_width": "190 cm"
 }
 ```
 
@@ -549,7 +555,7 @@ Exemple à revoir :
 
 ```json
 {
-  "fact": "weight_kg",
+  "fact": "weight",
   "raw_value": "150 kg",
   "status": "NEEDS_REVIEW",
   "reason": "OUT_OF_RANGE_FOR_PRODUCT_FAMILY"
@@ -589,7 +595,7 @@ Exemple UI :
 
 ```text
 Produit : Table Axolotl 190
-Fact douteux : weight_kg
+Fact douteux : weight
 Valeur extraite : 150 kg
 Raison : hors bornes pour mobilier_jardin/table_repas
 Source : page 2, zone surlignée

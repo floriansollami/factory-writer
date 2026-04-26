@@ -254,7 +254,7 @@ Exemple `extraction_steps_json` dossier usine :
 | `id` | `fact_cand_001` |
 | `ingestion_run_id` | `run_tech_001` |
 | `source_id` | `src_tech_sheet_001` |
-| `field_name` | `dimension_width_cm` |
+| `field_name` | `dimension_width` |
 | `raw_value` | `190 cm` |
 | `normalized_value` | `190` |
 | `unit` | `cm` |
@@ -266,7 +266,7 @@ Exemple `extraction_steps_json` dossier usine :
 | `source_evidence_text` | `190 cm` |
 | `source_page` | `2` |
 | `source_bbox_json` | `{"left":0.12,"top":0.43,"width":0.04,"height":0.02}` |
-| `raw_entity_json` | `{"type":"dimension_width_cm","mentionText":"190 cm","confidence":0.96}` |
+| `raw_entity_json` | `{"type":"dimension_width","mentionText":"190 cm","confidence":0.96}` |
 | `created_at` | `2026-04-20T10:24:00Z` |
 | `updated_at` | `2026-04-20T10:24:00Z` |
 
@@ -282,7 +282,7 @@ Exemple `extraction_steps_json` dossier usine :
 | `trigger_source` | `PYTHON_VALIDATOR` |
 | `severity` | `BLOCKING` |
 | `status` | `A_TRAITER` |
-| `field_name` | `dimension_width_cm` |
+| `field_name` | `dimension_width` |
 | `title` | `Largeur hors bornes attendues` |
 | `description` | `La valeur 1900 cm dépasse la borne maximale attendue pour mobilier_jardin.` |
 | `detected_value` | `1900` |
@@ -307,7 +307,7 @@ Exemple `extraction_steps_json` dossier usine :
 | `id` | `fact_001` |
 | `product_id` | `prod_001` |
 | `source_candidate_id` | `fact_cand_001` |
-| `field_name` | `dimension_width_cm` |
+| `field_name` | `dimension_width` |
 | `value` | `190` |
 | `unit` | `cm` |
 | `validation_source` | `SYSTEM` |

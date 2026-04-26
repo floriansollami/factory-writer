@@ -4,15 +4,15 @@ Ce document résume les briques utilisées pour ingérer les dossiers techniques
 
 ## Stack cible
 
-- **Upload contrôlé depuis l'admin** : l'utilisateur dépose les documents techniques du produit, idéalement par type : fiche technique, plan, certification, notice d'assemblage.
+- **Upload contrôlé depuis l'admin** : l'utilisateur dépose les documents techniques du produit, idéalement par type : fiche technique, fiche matière, notice d'assemblage.
 
-- **Custom Classifier Document AI** : utilisé si plusieurs fichiers arrivent séparément mais sans type fiable. Il classe chaque PDF : `TECHNICAL_SHEET`, `BLUEPRINT`, `ECO_CERTIFICATE`, `ASSEMBLY_NOTICE`, etc.
+- **Custom Classifier Document AI** : utilisé si plusieurs fichiers arrivent séparément mais sans type fiable. Il classe chaque PDF : `TECHNICAL_SHEET`, `MATERIAL_SPECIFICATION`, `ASSEMBLY_NOTICE`, `MIXED_TECHNICAL_DOSSIER`, `OUT_OF_SCOPE_DOCUMENT`.
 
 - **Custom Splitter Document AI** : utilisé seulement si un seul gros PDF mélange plusieurs documents. Il découpe le PDF en sous-documents logiques avant extraction.
 
 - **Enterprise OCR v2.1** : couche de preuve documentaire. Elle donne le texte brut, les pages, les bounding boxes, les confidence scores, les quality scores et permet le visual grounding.
 
-- **Custom Extractor Document AI Foundation Model** : extraction des facts métier typés : dimensions, poids, matériaux, certifications, contraintes d'assemblage. Pour Axolotl, c'est le meilleur choix de départ car les fournisseurs auront probablement des formats différents.
+- **Custom Extractors Document AI Foundation Model** : extraction routée par type documentaire. Le POC utilise trois processors : `fw-technical-sheet-extractor`, `fw-material-spec-extractor`, `fw-assembly-notice-extractor`.
 
 - **Validation Python déterministe** : vérification sans IA : exact match dans la source OCR, unités, bornes physiques par famille produit, champs obligatoires, contradictions, valeurs impossibles.
 
@@ -28,7 +28,7 @@ Ce document résume les briques utilisées pour ingérer les dossiers techniques
 Upload admin
 -> Classifier ou Splitter si nécessaire
 -> Enterprise OCR pour la preuve
--> Custom Extractor pour les facts
+-> Routage vers le Custom Extractor correspondant
 -> Validation Python
 -> Review par exception
 -> Facts validés

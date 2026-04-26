@@ -5,10 +5,31 @@ flowchart TD
   subgraph CUSTOM["1. Custom"]
     direction TD
     C0["Créer un processor adapté au besoin métier"]
-    C0 --> C1["Custom Classifier<br/>Classer les documents par catégorie"]
+    C0 --> C1["Custom Classifier<br/>Router les PDFs par type documentaire"]
     C0 --> C2["Custom Extractor<br/>Extraire des champs métier"]
     C0 --> C3["Custom Splitter<br/>Découper un gros fichier en documents"]
     C0 --> C4["Summarizer<br/>Résumer des documents"]
+
+    C1 --> CC0["Get started<br/>définir le schema de classification"]
+    CC0 --> CC1["Zero-shot<br/>schema seul pour tester<br/>pas besoin de samples"]
+    CC0 --> CC2["Customize<br/>samples labellisés + fine-tuning<br/>améliorer la précision"]
+    CC1 --> CC3["Labels POC<br/>TECHNICAL_SHEET<br/>ASSEMBLY_NOTICE<br/>MATERIAL_SPECIFICATION"]
+    CC3 --> CC5["Prompts de labels<br/>définition métier<br/>cas acceptés / refusés"]
+    CC5 --> CC6["Create version + Deploy<br/>puis config env backend<br/>CLASSIFIER_PROCESSOR_ID + VERSION"]
+    CC2 --> CC4["Samples optionnels<br/>évaluer, corriger, entraîner<br/>si le zero-shot ne suffit pas"]
+
+    C2 --> CE0["Get started<br/>définir le schema d'extraction"]
+    CE0 --> CE1["Zero-shot<br/>schema seul pour tester<br/>pas besoin de samples"]
+    CE0 --> CE2["Customize<br/>samples annotés + fine-tuning<br/>améliorer l'extraction"]
+    CE1 --> CE3["Routage POC<br/>un extractor par type documentaire"]
+    CE3 --> CE3A["TECHNICAL_SHEET<br/>fw-technical-sheet-extractor<br/>caractéristiques produit"]
+    CE3 --> CE3B["MATERIAL_SPECIFICATION<br/>fw-material-spec-extractor<br/>matières, finitions, conformité"]
+    CE3 --> CE3C["ASSEMBLY_NOTICE<br/>fw-assembly-notice-extractor<br/>montage et contraintes"]
+    CE3A --> CE5["Prompts de fields<br/>format attendu<br/>règles anti-confusion"]
+    CE3B --> CE5
+    CE3C --> CE5
+    CE5 --> CE6["Create version + Deploy<br/>puis config env backend<br/>3 EXTRACTOR_PROCESSOR_ID + VERSION"]
+    CE2 --> CE4["Samples optionnels<br/>évaluer, annoter, entraîner<br/>si le zero-shot ne suffit pas"]
   end
 
   subgraph GENERAL["2. General"]
@@ -58,7 +79,7 @@ flowchart TD
 
   O0 --> FW0["Usage POC Factory Writer"]
   FW0 --> FW1["Guides de style<br/>Layout Parser puis extraction des règles"]
-  FW0 --> FW2["Dossiers techniques<br/>Custom Classifier puis Custom Extractor foundation model"]
+  FW0 --> FW2["Dossiers techniques<br/>Custom Classifier zero-shot<br/>routage vers 3 Custom Extractors zero-shot"]
   FW2 --> FW3["Validation déterministe<br/>dimensions, matériaux, certifications, preuves"]
 
   classDef root fill:#F7F3EA,stroke:#8A7B66,stroke-width:2px,color:#1F1A14;
@@ -70,7 +91,7 @@ flowchart TD
   classDef poc fill:#EAF4F2,stroke:#0F766E,stroke-width:2px,color:#134E4A;
 
   class A,B,P0,V0 root;
-  class C0,C1,C2,C3,C4 custom;
+  class C0,C1,C2,C3,C4,CC0,CC1,CC2,CC3,CC4,CC5,CC6,CE0,CE1,CE2,CE3,CE3A,CE3B,CE3C,CE4,CE5,CE6 custom;
   class G0,G1,G2,G3 general;
   class S0,S1,S2,S3,S4 specialized;
   class V1,V2,V3,R0,R1,R2,R3,M0,M1,M2 runtime;

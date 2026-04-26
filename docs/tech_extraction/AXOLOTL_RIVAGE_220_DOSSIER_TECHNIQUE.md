@@ -39,19 +39,19 @@ L'objectif n'est pas de rendre l'extraction trop facile. Les documents utilisent
 - `sku` : AX-TB-RIV-220-TKGR.
 - `material_primary` : teck massif, Tectona grandis.
 - `material_secondary` : aluminium 6063-T5, finition poudre polyester graphite mat RAL 7021.
-- `dimension_width_cm` : 220 cm.
-- `dimension_depth_cm` : 95 cm.
-- `dimension_height_cm` : 74 cm.
-- `weight_kg` : 58 kg +/- 2 kg.
+- `dimension_width` : 220 cm.
+- `dimension_depth` : 95 cm.
+- `dimension_height` : 74 cm.
+- `weight` : 58 kg +/- 2 kg.
 - `parasol_hole_diameter_mm` : 50 mm.
 - `usage_capacity` : 8 couverts.
 
 ### Depuis la notice de montage
 
 - `assembly_people_required` : 2 adultes.
-- `assembly_time_minutes` : 25 min.
+- `assembly_time` : 25 min.
 - `required_tool` : clé Allen 5 mm fournie.
-- `max_torque_nm` : 8 N·m.
+- `max_torque` : 8 N·m.
 - `assembly_constraints` :
   - assembler sur mousse ou carton ;
   - ne pas serrer à fond avant équerrage ;

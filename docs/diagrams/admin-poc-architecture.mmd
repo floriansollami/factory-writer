@@ -1,65 +1,112 @@
 %%{init: {"theme": "base", "themeVariables": {"fontFamily": "Arial", "primaryColor": "#F7F3EA", "primaryTextColor": "#1F1A14", "primaryBorderColor": "#C9BFA8", "lineColor": "#6F6558", "secondaryColor": "#F7F3EA", "tertiaryColor": "#F3F0E8"}}}%%
 flowchart TD
-  A["Interface admin"] --> B["API backend"]
-
-  subgraph SG["1. Guide de style"]
+  subgraph PROD["2. Produit et attente workflow"]
     direction TD
-    B --> SG0["Importer le PDF du guide"]
-    SG0 --> SG1["Workflow d'analyse du guide"]
-    SG1 --> SG2["Préparer la source et le run"]
-    SG2 --> SG3["Lire le PDF et isoler les passages utiles"]
-    SG3 --> SG4["Extraire les règles candidates"]
-    SG4 --> SG5["Contrôler le JSON et les preuves"]
-    SG5 --> SG6["Créer le pack candidat à relire"]
-    SG6 --> SG7["Attendre la revue éditoriale"]
-    SG7 --> SG8{"Décision sur le pack"}
-    SG8 -- "Activer" --> SG9["Activer le pack"]
-    SG8 -- "Rejeter" --> SG10["Archiver le pack"]
-    SG9 --> SG11["Pack de style actif"]
-  end
-
-  subgraph PROD["2. Produit"]
-    direction TD
-    B --> P0["Créer le produit (admin)"]
+    P0["<span style='font-size:10px'>Cloud Run Service</span><br/>Créer le produit (admin)"]
     P0 --> P1["Créer <i>produit</i> (via <i>taxonomie_produit</i>)"]
     P1 --> P2["Start le workflow cycle de vie produit"]
-    P2 --> P3["Workflow cycle de vie produit"]
+    P2 --> PQ["Task queue Temporal<br/><i>product-lifecycle</i>"]
+    PQ -- "poll worker" --> P3["<span style='font-size:10px'>Cloud Run Worker Pool</span><br/>Workflow produit démarré"]
     P3 --> P4["Charger le produit depuis la base"]
-    P4 --> P5["Attendre les PDFs techniques"]
+    P4 -- "en attente" --> P5["Workflow produit suspendu<br/>Attend <i>TechnicalSourcesUploaded</i>"]
   end
 
   subgraph TECH_UPLOAD["3. Déposer les sources techniques"]
-    direction TD
-    B --> T0["Upload les PDFs techniques (admin)"]
-    T0 --> T1["Créer <i>document_collection</i>"]
-    T1 --> T2["Créer <i>document_source</i> pour chaque PDF"]
-    T2 --> T3["Lancer l'ingestion (admin)"]
-    T3 --> T4["Créer <i>document_ingestion_run</i>"]
-    T4 --> T5["Signaler au workflow que les PDFs techniques sont uploadés"]
+    direction RL
+    subgraph TECH_START["Lancement de l'analyse"]
+      direction TD
+      T3["<span style='font-size:10px'>Cloud Run Service</span><br/>Lancer l'ingestion (admin)"]
+      T3 --> T4["Créer <i>document_ingestion_run</i><br/>EN_COURS / UPLOAD"]
+      T4 --> T4B["Mettre <i>document_collection</i><br/>et <i>document_source</i> à EN_COURS"]
+    end
+
+    subgraph TECH_SOURCES["Upload et sources"]
+      direction TD
+      T0["<span style='font-size:10px'>Cloud Run Service</span><br/>Upload les PDFs techniques (admin)"]
+      T0 --> TGCS["Stocker chaque PDF technique dans GCS"]
+      TGCS --> T1["Créer <i>document_collection</i>"]
+      T1 --> T2["Créer les <i>document_source</i>"]
+    end
   end
 
-  T5 --> P5
+  %% Contrainte de layout invisible: garde les deux colonnes du point 3 alignées.
+  T2 ~~~ P5
+  T4B -- "signal Temporal<br/><i>TechnicalSourcesUploaded</i>" --> PQ
 
-  subgraph TECH_WF["4. Analyse du dossier technique"]
-    direction TD
-    P5 --> W0["Child workflow d'analyse technique"]
-    W0 --> T6["Passer le run en classification"]
-    T6 --> T7["Classer chaque document"]
-    T7 --> T8["Enregistrer le type détecté"]
-    T8 --> T12["Extraire les faits techniques"]
-    T12 --> T13["Enregistrer les faits et leurs preuves"]
-    T13 --> T14["Valider dimensions, matériaux et certifications"]
-    T14 --> T15{"Blocage à relire ?"}
-    T15 -- "Oui" --> T16["Attendre une correction humaine"]
-    T16 --> T17["Correction reçue"]
-    T17 --> T14
-    T15 -- "Non" --> T18["Publier les faits validés"]
-    T18 --> T19["Faits techniques prêts"]
+  subgraph ANALYSIS_STYLE_ROW[" "]
+    direction LR
+    subgraph TECH_WF["4. Analyse du dossier technique"]
+      direction TD
+      P5 --> W0["Child workflow d'analyse technique"]
+      W0 --> T6["Charger le contexte d'ingestion"]
+      T6 --> T6B["Mettre <i>document_ingestion_run</i><br/>à EN_COURS / DOCUMENT_CLASSIFICATION"]
+      T6B --> T7["Classer chaque PDF technique"]
+      T7 --> T7A["Appeler Document AI classifier<br/>pour chaque PDF"]
+      T7A --> T8P["Persister les résultats de classification"]
+      T8P --> T8["Mettre à jour <i>document_source</i><br/>type de fichier, score et métadonnées (GCP classifier)"]
+      T8 -- "type non routable<br/>ou confiance &lt; 0.90" --> T8C["Créer les <i>technical_review_case</i><br/>Mettre <i>document_ingestion_run</i><br/>à A_VALIDER / HUMAN_REVIEW<br/>et <i>document_collection</i> à A_VALIDER"]
+      T8 -- "type routable<br/>et confiance ≥ 0.90" --> T8F["Mettre <i>document_ingestion_run</i><br/>à EN_COURS / FACT_EXTRACTION"]
+      T8C -. "note" .- T8N["Note démo<br/><i>TECHNICAL_SHEET</i> &lt; 0.90 est possible,<br/>mais peu fiable à provoquer.<br/>Souvent le classifier répond plutôt<br/><i>TECHNICAL_SHEET</i> très confiant<br/>ou <i>MIXED/OUT_OF_SCOPE</i> très confiant."]
+      T8C --> T8R["Retourner <i>review_case_count</i>"]
+      T8F --> T8R
+      T8R --> T8B{"review_case_count > 0 ?"}
+      T8B -- "Oui" --> T8E["Workflow suspendu<br/>Attend <i>review_case_resolved</i>"]
+      T8E --> T8U["Décider sur le blocage<br/>Confirmer, corriger ou remplacer (admin)"]
+      T8U -- "signal Temporal<br/><i>review_case_resolved</i>" --> T8S{"open_review_case_count = 0 ?"}
+      T8S -- "Non" --> T8E
+      T8S -- "Oui" --> T8H["Recharger les classifications<br/>corrigées depuis la base"]
+      T8H --> T12["Extraire les faits techniques"]
+      T8B -- "Non" --> T12
+      T12 --> T12A["Appeler Document AI Custom Extractor<br/>selon le type de fichier"]
+      T12A --> T12B["Mettre <i>document_ingestion_run</i><br/>à EN_COURS / FACT_EXTRACTION<br/>avec extraction_steps_json"]
+      T12B --> T13["Persister les facts candidats"]
+      T13 --> T13A["Créer les <i>technical_fact_candidate</i><br/>intermédiaires"]
+      T13A --> T13B["Mettre <i>document_ingestion_run</i><br/>à EN_COURS / DETERMINISTIC_VALIDATION"]
+      T13B --> T14["Valider la readiness génération"]
+      T14 --> T14A["Charger <i>generation_readiness_profile</i>"]
+      T14A --> T14B["Contrôler champs requis,<br/>confiance et bornes réalistes"]
+      T14B --> T14C["Retourner facts promouvables<br/>et review cases"]
+      T14C --> T18["Promouvoir les faits techniques"]
+      T18 --> T18A["Créer les <i>technical_fact_candidate</i><br/>finalisés"]
+      T18A --> T18B["Créer les <i>technical_fact</i><br/>validés SYSTEM"]
+      T18B --> T18C["Créer les <i>technical_review_case</i><br/>A_TRAITER si blocage readiness"]
+      T18C --> T18D["Mettre <i>document_ingestion_run</i><br/>à A_VALIDER / HUMAN_REVIEW<br/>ou TERMINE / DONE"]
+      T18D --> T18E["Mettre <i>document_collection</i><br/>à A_VALIDER ou TERMINE<br/>et <i>document_source</i> à TERMINE"]
+      T18E --> T15{"review_case_count > 0 ?"}
+      T15 -- "Oui" --> T16["Workflow suspendu<br/>Attend <i>review_case_resolved</i>"]
+      T16 --> T17["Décider sur le fact bloquant (admin)"]
+      T17 --> T17A["Mettre <i>technical_review_case</i><br/>à APPROUVE / CORRIGE / REJETE<br/>ou DOCUMENT_A_REMPLACER"]
+      T17A --> T17B["Créer <i>technical_fact</i> HUMAN<br/>si valeur approuvée ou corrigée"]
+      T17B --> T17C["Si dernier blocage : mettre <i>document_ingestion_run</i><br/>à TERMINE / DONE<br/>et <i>document_collection</i> à TERMINE"]
+      T17C -- "signal Temporal<br/><i>review_case_resolved</i>" --> T17D{"open_review_case_count = 0 ?"}
+      T17D -- "Non" --> T16
+      T17D -- "Oui" --> T19["Faits techniques prêts<br/>TECHNICAL_FACTS_READY"]
+      T15 -- "Non" --> T19
+    end
+
+    subgraph SG["1. Guide de style"]
+      direction TD
+      SG0["Importer le PDF du guide (admin)"]
+      SG0 --> SG1["Workflow d'analyse du guide"]
+      SG1 --> SG2["Créer la source et le run du guide<br/><i>document_ingestion_run</i> EN_COURS / UPLOAD"]
+      SG2 --> SG3["Lire le PDF et isoler les passages utiles"]
+      SG3 --> SG4["Extraire les règles candidates"]
+      SG4 --> SG5["Contrôler le JSON et les preuves"]
+      SG5 --> SG6["Créer le pack candidat<br/><i>style_pack</i> BROUILLON<br/><i>style_rule</i> A_VALIDER<br/><i>document_ingestion_run</i> A_VALIDER / HUMAN_REVIEW"]
+      SG6 --> SG7["Attendre la revue éditoriale"]
+      SG7 --> SG8{"Décision sur le pack"}
+      SG8 -- "Activer" --> SG9["Mettre <i>style_pack</i> à ACTIF<br/>et <i>document_ingestion_run</i><br/>à TERMINE / DONE"]
+      SG8 -- "Rejeter" --> SG10["Mettre <i>style_pack</i> à ARCHIVE<br/>et <i>document_ingestion_run</i><br/>à ANNULE / HUMAN_REVIEW"]
+      SG9 --> SG11["Pack de style<br/>ACTIF"]
+    end
+
+    %% Contrainte de layout invisible: garde le guide de style à droite de l'analyse technique.
+    W0 ~~~ SG0
   end
 
   subgraph COMM["5. Signaux commerciaux de démo"]
     direction TD
-    B --> C0["Précharger ventes et retours clients"]
+    C0["Précharger ventes et retours clients (admin)"]
     C0 --> C1["Seed via migration"]
     C1 --> C2["Snapshot commercial disponible"]
   end
@@ -71,7 +118,7 @@ flowchart TD
     C2 --> R0
     P4 --> R0
     R0 --> R1["Vérifier le produit"]
-    R1 --> R2["Vérifier le pack de style actif"]
+    R1 --> R2["Vérifier le pack de style<br/>ACTIF"]
     R2 --> R3["Choisir le snapshot commercial"]
     R3 --> R4["Charger les faits techniques validés"]
     R4 --> R5{"Contexte complet ?"}
@@ -84,12 +131,17 @@ flowchart TD
 
   classDef workflow fill:#EAF4F2,stroke:#0F766E,stroke-width:2px,color:#134E4A;
   classDef activity fill:#FEE2E2,stroke:#B91C1C,stroke-width:1.5px,color:#7F1D1D;
+  classDef api fill:#DBEAFE,stroke:#1D4ED8,stroke-width:1.5px,color:#1E3A8A;
   classDef wait fill:#F4F1EA,stroke:#756B5D,stroke-width:1.5px,color:#2D241C;
   classDef storage fill:#F7F3EA,stroke:#B8AA94,stroke-width:1.5px,color:#3A3026;
   classDef decision fill:#FEF3C7,stroke:#B45309,stroke-width:1.5px,color:#7C2D12;
+  classDef note fill:#FFF7ED,stroke:#EA580C,stroke-width:1.2px,color:#7C2D12;
 
   class SG1,P3,W0,R0,R9 workflow;
-  class SG2,SG3,SG4,SG5,SG6,SG9,SG10,P4,T6,T7,T8,T12,T13,T14,T18,R1,R2,R3,R4,R7 activity;
-  class SG7,P5,T16,T17,R6 wait;
-  class C2,P1,T1,T2,T4 storage;
-  class SG8,T15,R5 decision;
+  class SG2,SG3,SG4,SG5,SG6,SG9,SG10,P4,T6,T7,T8P,T8H,T12,T13,T14,T18,R1,R2,R3,R4,R7 activity;
+  class SG0,P0,T0,T3,T8U,T17,C0 api;
+  class SG7,PQ,P5,T8E,T16,R6 wait;
+  class C2,P1,TGCS,T1,T2,T4,T4B,T6B,T8,T8C,T8F,T12B,T13A,T13B,T14A,T17A,T17B,T17C,T18A,T18B,T18C,T18D,T18E storage;
+  class SG8,T8B,T8S,T15,T17D,R5 decision;
+  class T8N note;
+  style ANALYSIS_STYLE_ROW fill:transparent,stroke:transparent,color:transparent

@@ -38,10 +38,10 @@ Dans Document AI, un `Custom Extractor` sert à extraire des **entités métier 
 Exemple Axolotl :
 
 ```text
-dimension_width_cm
-dimension_depth_cm
-dimension_height_cm
-net_weight_kg
+dimension_width
+dimension_depth
+dimension_height
+weight
 primary_material
 wood_species
 metal_grade
@@ -127,10 +127,10 @@ Exemple :
 
 ```text
 product_reference
-dimension_width_cm
-dimension_depth_cm
-dimension_height_cm
-net_weight_kg
+dimension_width
+dimension_depth
+dimension_height
+weight
 primary_material
 wood_species
 metal_grade
@@ -151,16 +151,16 @@ width
 Il vaut mieux écrire :
 
 ```text
-dimension_width_cm
+dimension_width
 ```
 
 Avec une description claire :
 
 ```text
-Extract the explicit product width from the technical specification.
-Only extract values directly stated in the document.
-Do not infer width from product name, image, or marketing text.
-If both product and package dimensions are present, prefer product dimensions.
+Extraire la largeur du produit exactement comme écrite, avec l’unité source si visible.
+Ne pas convertir.
+Ne pas déduire depuis le nom produit, l’image ou le marketing.
+Si dimensions produit et colis sont présentes, préférer les dimensions produit.
 ```
 
 Pour Axolotl, je recommande :
@@ -229,9 +229,9 @@ Exemple :
 
 ```text
 Document AI propose :
-dimension_width_cm = 190 cm
-dimension_depth_cm = 90 cm
-dimension_height_cm = 74 cm
+dimension_width = 190 cm
+dimension_depth = 90 cm
+dimension_height = 74 cm
 primary_material = teck FSC
 ```
 
@@ -284,10 +284,10 @@ Autre exemple :
 
 ```text
 Document AI propose :
-net_weight_kg = 150 kg
+weight = 150 kg
 
 Humain corrige :
-net_weight_kg = 15.0 kg
+weight = 15.0 kg
 ```
 
 Autre exemple :
@@ -402,9 +402,9 @@ Exemple :
 
 | Champ | Precision | Recall | F1 | Décision |
 | --- | --- | --- | --- | --- |
-| `dimension_width_cm` | 0.98 | 0.96 | 0.97 | OK |
-| `dimension_depth_cm` | 0.97 | 0.95 | 0.96 | OK |
-| `net_weight_kg` | 0.86 | 0.78 | 0.82 | Trop faible |
+| `dimension_width` | 0.98 | 0.96 | 0.97 | OK |
+| `dimension_depth` | 0.97 | 0.95 | 0.96 | OK |
+| `weight` | 0.86 | 0.78 | 0.82 | Trop faible |
 | `eco_certification_id` | 0.74 | 0.62 | 0.67 | Review obligatoire |
 
 Lecture :

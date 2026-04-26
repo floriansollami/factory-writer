@@ -163,7 +163,7 @@ Débrouille-toi pour les trouver dans le document.
 Exemple :
 
 ```text
-Champ : dimension_width_cm
+Champ : dimension_width
 
 Description :
 Extraire la largeur du produit exactement comme elle est écrite dans la fiche technique.
@@ -180,7 +180,7 @@ Et proposer :
 
 ```json
 {
-  "dimension_width_cm": "190 cm"
+  "dimension_width": "190 cm"
 }
 ```
 
