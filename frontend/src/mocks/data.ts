@@ -63,6 +63,7 @@ export const productOverviewsMock: ProductOverview[] = [
     },
     technical_collection: null,
     sources: [],
+    technical_classifications: [],
     run: null,
     facts: [],
     fact_candidates: [],

@@ -4,6 +4,7 @@ import type { ProductSheet } from "@/features/product-sheets/schema";
 import {
   productListActionHint,
   productListActionLabel,
+  productListStatusLabel,
 } from "@/features/product-sheets/productSheetUtils";
 
 const baseProduct: ProductSheet = {
@@ -25,15 +26,16 @@ describe("product next action", () => {
   it("prioritizes the active style guide before product sources", () => {
     const product = { ...baseProduct, styleGuideReady: false };
 
-    expect(productListActionLabel(product)).toBe("Activer le guide de style");
+    expect(productListActionLabel(product)).toBe("Importer le guide de style");
     expect(productListActionHint(product)).toBe("Requis avant génération");
+    expect(productListStatusLabel(product)).toBe("Guide de style requis");
   });
 
-  it("prioritizes commercial signals after the style guide", () => {
+  it("keeps the product preparation action when commercial signals are missing", () => {
     const product = { ...baseProduct, commercialSignalsReady: false };
 
-    expect(productListActionLabel(product)).toBe("Préparer les signaux");
-    expect(productListActionHint(product)).toBe("Données ventes et retours à vérifier");
+    expect(productListActionLabel(product)).toBe("Préparer la fiche");
+    expect(productListActionHint(product)).toBe("Ajouter les dossiers techniques");
   });
 
   it("falls back to the product preparation action when prerequisites are ready", () => {

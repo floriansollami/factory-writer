@@ -2,7 +2,7 @@ import type { ProductOverview, ProductSheet, TechnicalRun } from "@/features/pro
 
 export type ProductFlowStep = "product" | "sources" | "analysis" | "context" | "generation";
 
-export function productReadinessLabel(status: ProductSheet["readinessStatus"]) {
+function productReadinessLabel(status: ProductSheet["readinessStatus"]) {
   switch (status) {
     case "CONTEXT_READY":
       return "Prêt pour génération";
@@ -19,13 +19,25 @@ export function productReadinessLabel(status: ProductSheet["readinessStatus"]) {
   }
 }
 
-export function productListActionLabel(product: ProductSheet) {
+export function productListStatusLabel(product: ProductSheet) {
   if (!product.styleGuideReady) {
-    return "Activer le guide de style";
+    return "Guide de style requis";
   }
 
-  if (!product.commercialSignalsReady) {
-    return "Préparer les signaux";
+  return productReadinessLabel(product.readinessStatus);
+}
+
+export function productListStatusTone(product: ProductSheet) {
+  if (!product.styleGuideReady) {
+    return "warning";
+  }
+
+  return productStatusTone(product.readinessStatus);
+}
+
+export function productListActionLabel(product: ProductSheet) {
+  if (!product.styleGuideReady) {
+    return "Importer le guide de style";
   }
 
   switch (product.readinessStatus) {
@@ -49,10 +61,6 @@ export function productListActionHint(product: ProductSheet) {
     return "Requis avant génération";
   }
 
-  if (!product.commercialSignalsReady) {
-    return "Données ventes et retours à vérifier";
-  }
-
   switch (product.readinessStatus) {
     case "PRODUCT_CREATED":
       return "Ajouter les dossiers techniques";
@@ -69,7 +77,7 @@ export function productListActionHint(product: ProductSheet) {
   }
 }
 
-export function productStatusTone(status: ProductSheet["readinessStatus"]) {
+function productStatusTone(status: ProductSheet["readinessStatus"]) {
   switch (status) {
     case "CONTEXT_READY":
       return "success";
@@ -115,19 +123,92 @@ export function formatCode(value: string) {
   return value.replaceAll("_", " ");
 }
 
-export function formatDate(value: string | null) {
-  if (value === null) {
-    return "Non disponible";
+export function technicalDocumentTypeLabel(value: string | null | undefined) {
+  switch (value) {
+    case "TECHNICAL_SHEET":
+      return "Fiche technique produit";
+    case "BLUEPRINT":
+      return "Plan technique";
+    case "ECO_CERTIFICATE":
+      return "Certificat environnemental";
+    case "ASSEMBLY_NOTICE":
+      return "Notice d’assemblage";
+    case "MATERIAL_SPECIFICATION":
+      return "Fiche matière";
+    case "OUT_OF_SCOPE_DOCUMENT":
+      return "Document hors périmètre";
+    case "MIXED_TECHNICAL_DOSSIER":
+      return "Dossier technique mélangé";
+    case "UNKNOWN":
+      return "Type non reconnu";
+    case null:
+    case undefined:
+      return "Type non renseigné";
+    default:
+      return formatCode(value);
   }
+}
 
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return value;
+export function technicalFactFieldLabel(value: string | null | undefined) {
+  switch (value) {
+    case "sku":
+      return "SKU";
+    case "product_name":
+      return "Nom produit";
+    case "dimension_width":
+    case "dimension_width_cm":
+      return "Largeur";
+    case "dimension_depth":
+    case "dimension_depth_cm":
+      return "Profondeur";
+    case "dimension_height":
+    case "dimension_height_cm":
+      return "Hauteur";
+    case "dimension_set_raw":
+      return "Dimensions source";
+    case "component_dimensions":
+      return "Dimensions composant";
+    case "weight":
+    case "weight_kg":
+      return "Poids";
+    case "material_primary":
+      return "Matière principale";
+    case "material_secondary":
+      return "Matière secondaire";
+    case "finish_primary":
+      return "Finition principale";
+    case "usage_capacity":
+      return "Capacité d’usage";
+    case "feature_or_accessory":
+      return "Accessoire ou caractéristique";
+    case "quality_control_points":
+      return "Points de contrôle qualité";
+    case "assembly_constraints":
+      return "Contraintes d’assemblage";
+    case "required_tool":
+      return "Outil requis";
+    case "assembly_people_required":
+      return "Personnes requises";
+    case "assembly_time":
+      return "Temps de montage";
+    case "max_torque":
+      return "Couple maximal";
+    case "eco_certifications":
+      return "Certifications environnementales";
+    case "certification_claim_type":
+      return "Type de certification";
+    case "covered_component":
+      return "Composant couvert";
+    case "excluded_component":
+      return "Composant exclu";
+    case "unsupported_claims":
+      return "Promesses non supportées";
+    case "technical_claim_limits":
+      return "Limites techniques";
+    case null:
+    case undefined:
+      return "Champ non renseigné";
+    default:
+      return formatCode(value);
   }
-
-  return new Intl.DateTimeFormat("fr-FR", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(date);
 }

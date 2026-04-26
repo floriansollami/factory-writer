@@ -1,26 +1,25 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  Armchair,
   ArrowRight,
-  CheckCircle2,
-  Clock3,
-  FileText,
-  Flower2,
   Loader2,
   PackagePlus,
   Plus,
-  Sparkles,
-  UploadCloud,
+  Scissors,
+  Wrench,
   X,
 } from "lucide-react";
 import {
   type FormEvent,
   type ReactNode,
+  type SVGProps,
   useEffect,
   useId,
   useMemo,
   useState,
 } from "react";
 
+import { AxolotlLogo } from "@/components/brand/AxolotlLogo";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardTitle } from "@/components/ui/card";
@@ -33,8 +32,8 @@ import {
   formatCode,
   productListActionHint,
   productListActionLabel,
-  productReadinessLabel,
-  productStatusTone,
+  productListStatusLabel,
+  productListStatusTone,
 } from "@/features/product-sheets/productSheetUtils";
 import {
   createProduct,
@@ -44,10 +43,10 @@ import {
 import { cn } from "@/lib/utils";
 
 const navItems = [
-  "Accueil admin",
-  "Guide de style",
+  "Accueil",
   "Fiches produit",
-  "Signaux marketing",
+  "Guide de style",
+  "Paramètres",
 ];
 
 type ProductFormValues = {
@@ -72,36 +71,18 @@ const initialProductFormValues: ProductFormValues = {
 
 const EMPTY_PRODUCTS: ProductSheet[] = [];
 const EMPTY_TAXONOMIES: ProductTaxonomy[] = [];
-const productJourneySteps = [
-  {
-    label: "Produit",
-    text: "Entrée catalogue créée",
-  },
-  {
-    label: "Dossiers",
-    text: "PDFs techniques ajoutés",
-  },
-  {
-    label: "Analyse",
-    text: "Faits contrôlés",
-  },
-  {
-    label: "Génération",
-    text: "Fiche prête à relire",
-  },
-];
 
 type ProductSheetsHomePageProps = {
   onOpenAdminHome: () => void;
   onOpenProductDetail: (productId: string) => void;
-  onOpenMarketingSignals: (productId: string, returnTo: string) => void;
+  onOpenSettings: () => void;
   onOpenStyleGuide: (returnTo?: string) => void;
 };
 
 export function ProductSheetsHomePage({
   onOpenAdminHome,
-  onOpenMarketingSignals,
   onOpenProductDetail,
+  onOpenSettings,
   onOpenStyleGuide,
 }: ProductSheetsHomePageProps) {
   const [isCreateDialogOpen, setCreateDialogOpen] = useState(false);
@@ -130,7 +111,7 @@ export function ProductSheetsHomePage({
           <div className="relative">
             <div className="flex items-center gap-3">
               <div className="grid size-11 place-items-center rounded-2xl bg-white/12">
-                <Flower2 className="size-6" />
+                <AxolotlLogo className="size-7" />
               </div>
               <div>
                 <p className="font-serif text-xl font-semibold tracking-[-0.03em]">Axolotl</p>
@@ -149,16 +130,19 @@ export function ProductSheetsHomePage({
                       "bg-white text-[var(--color-forest)] hover:bg-white hover:text-[var(--color-forest)]",
                   )}
                   onClick={
-                    item === "Accueil admin"
+                    item === "Accueil"
                       ? onOpenAdminHome
                       : item === "Guide de style"
                         ? () => onOpenStyleGuide()
+                        : item === "Paramètres"
+                          ? onOpenSettings
                         : undefined
                   }
                 >
                   {item}
-                  {item === "Accueil admin" ? <ArrowRight className="size-4" /> : null}
+                  {item === "Accueil" ? <ArrowRight className="size-4" /> : null}
                   {item === "Guide de style" ? <ArrowRight className="size-4" /> : null}
+                  {item === "Paramètres" ? <ArrowRight className="size-4" /> : null}
                 </button>
               ))}
             </nav>
@@ -181,7 +165,7 @@ export function ProductSheetsHomePage({
             <Card className="relative overflow-hidden bg-[linear-gradient(135deg,#173124,#2d4739)] p-8 text-white">
               <div className="absolute -right-24 -top-24 size-72 rounded-full bg-[#cde5d3]/18 blur-3xl" />
               <div className="absolute -bottom-28 left-12 size-72 rounded-full bg-[#d4b374]/12 blur-3xl" />
-              <div className="relative grid grid-cols-[1fr_24rem] gap-8 max-xl:grid-cols-1">
+              <div className="relative">
                 <div>
                   <Badge className="bg-white/15 text-white">Cockpit produit</Badge>
                   <h2 className="mt-4 max-w-3xl font-serif text-4xl font-semibold leading-tight tracking-[-0.045em] max-md:text-3xl">
@@ -192,24 +176,6 @@ export function ProductSheetsHomePage({
                     puis préparer la génération. La suite du parcours se passe toujours depuis
                     la fiche produit.
                   </p>
-                </div>
-                <div className="rounded-[1.5rem] border border-white/12 bg-white/10 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.14)] backdrop-blur">
-                  <p className="text-xs font-bold uppercase tracking-[0.16em] text-white/58">
-                    Parcours d’une fiche
-                  </p>
-                  <div className="mt-4 grid gap-3">
-                    {productJourneySteps.map((step, index) => (
-                      <div key={step.label} className="flex items-center gap-3">
-                        <span className="grid size-8 shrink-0 place-items-center rounded-full bg-white text-xs font-bold text-[var(--color-forest)]">
-                          {index + 1}
-                        </span>
-                        <span>
-                          <span className="block text-sm font-bold">{step.label}</span>
-                          <span className="block text-xs text-white/62">{step.text}</span>
-                        </span>
-                      </div>
-                    ))}
-                  </div>
                 </div>
               </div>
             </Card>
@@ -248,7 +214,6 @@ export function ProductSheetsHomePage({
               ) : (
                 <ProductTaskList
                   onOpenProductDetail={onOpenProductDetail}
-                  onOpenMarketingSignals={onOpenMarketingSignals}
                   onOpenStyleGuide={onOpenStyleGuide}
                   products={products}
                   onCreate={() => setCreateDialogOpen(true)}
@@ -273,13 +238,11 @@ export function ProductSheetsHomePage({
 
 function ProductTaskList({
   onOpenProductDetail,
-  onOpenMarketingSignals,
   onOpenStyleGuide,
   products,
   onCreate,
 }: {
   onOpenProductDetail: (productId: string) => void;
-  onOpenMarketingSignals: (productId: string, returnTo: string) => void;
   onOpenStyleGuide: (returnTo?: string) => void;
   products: ProductSheet[];
   onCreate: () => void;
@@ -293,7 +256,6 @@ function ProductTaskList({
             onOpen={() => onOpenProductDetail(product.id)}
             onPrimaryAction={() =>
               openProductPrimaryAction({
-                onOpenMarketingSignals,
                 onOpenProductDetail,
                 onOpenStyleGuide,
                 product,
@@ -338,22 +300,37 @@ function ProductTaskRow({
       <div className="grid grid-cols-[1fr_auto] items-center gap-5 max-lg:grid-cols-1">
         <div className="grid grid-cols-[auto_1fr] gap-4">
           <div className="grid size-12 place-items-center rounded-2xl bg-[linear-gradient(135deg,var(--color-sage-soft),var(--color-gold-soft))] text-[var(--color-forest)]">
-            {productStatusIcon(product.readinessStatus)}
+            {productCategoryIcon(product)}
           </div>
           <div>
             <div className="flex flex-wrap items-start gap-3">
               <h3 className="font-serif text-2xl font-semibold tracking-[-0.04em] text-[var(--color-ink)]">
                 {product.name}
               </h3>
-              <Badge tone={productStatusTone(product.readinessStatus)}>
-                {productReadinessLabel(product.readinessStatus)}
-              </Badge>
+              {product.styleGuideReady ? (
+                <Badge tone={productListStatusTone(product)}>
+                  {productListStatusLabel(product)}
+                </Badge>
+              ) : null}
             </div>
             <p className="mt-2 text-sm font-semibold text-[var(--color-ink)]">
               {product.sku}
               <span className="mx-2 text-[var(--color-gold)]">•</span>
               <span className="text-[var(--color-muted)]">{formatCode(product.familleCode)}</span>
+              {product.sousFamilleCode !== null ? (
+                <>
+                  <span className="mx-2 text-[var(--color-gold)]">•</span>
+                  <span className="text-[var(--color-muted)]">
+                    {formatCode(product.sousFamilleCode)}
+                  </span>
+                </>
+              ) : null}
             </p>
+            {!product.commercialSignalsReady ? (
+              <div className="mt-3">
+                <Badge tone="warning">Signaux commerciaux manquants</Badge>
+              </div>
+            ) : null}
           </div>
         </div>
 
@@ -384,12 +361,10 @@ function ProductTaskRow({
 }
 
 function openProductPrimaryAction({
-  onOpenMarketingSignals,
   onOpenProductDetail,
   onOpenStyleGuide,
   product,
 }: {
-  onOpenMarketingSignals: (productId: string, returnTo: string) => void;
   onOpenProductDetail: (productId: string) => void;
   onOpenStyleGuide: (returnTo?: string) => void;
   product: ProductSheet;
@@ -401,27 +376,83 @@ function openProductPrimaryAction({
     return;
   }
 
-  if (!product.commercialSignalsReady) {
-    onOpenMarketingSignals(product.id, returnTo);
-    return;
-  }
-
   onOpenProductDetail(product.id);
 }
 
-function productStatusIcon(status: ProductSheet["readinessStatus"]) {
-  switch (status) {
-    case "PRODUCT_CREATED":
-      return <UploadCloud className="size-6" />;
-    case "TECHNICAL_SOURCES_UPLOADED":
-    case "INGESTION_RUNNING":
-      return <Clock3 className="size-6" />;
-    case "PENDING_TECH_REVIEW":
-    case "FAILED":
-      return <FileText className="size-6" />;
-    case "CONTEXT_READY":
-      return <CheckCircle2 className="size-6" />;
+function productCategoryIcon(product: ProductSheet) {
+  const familleCode = product.familleCode.toLowerCase();
+  const sousFamilleCode = product.sousFamilleCode?.toLowerCase() ?? "";
+  const productName = product.name.toLowerCase();
+
+  if (sousFamilleCode.includes("table") || productName.includes("table")) {
+    return <Table3DIcon className="size-7" />;
   }
+
+  if (familleCode === "mobilier_jardin") {
+    return <Armchair className="size-6" />;
+  }
+
+  if (sousFamilleCode.includes("secateur")) {
+    return <Scissors className="size-6" />;
+  }
+
+  if (familleCode === "outils_jardin") {
+    return <Wrench className="size-6" />;
+  }
+
+  return <PackagePlus className="size-6" />;
+}
+
+function Table3DIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      aria-hidden="true"
+      fill="none"
+      focusable="false"
+      viewBox="0 0 48 48"
+      xmlns="http://www.w3.org/2000/svg"
+      {...props}
+    >
+      <path
+        d="M11 20.7 24 13l13 7.7-13 7.7-13-7.7Z"
+        fill="#D7A45E"
+        stroke="#173124"
+        strokeLinejoin="round"
+        strokeWidth="2.1"
+      />
+      <path
+        d="M11 20.7v5.1l13 7.7v-5.1L11 20.7Z"
+        fill="#B87A38"
+        stroke="#173124"
+        strokeLinejoin="round"
+        strokeWidth="2.1"
+      />
+      <path
+        d="M37 20.7v5.1l-13 7.7v-5.1l13-7.7Z"
+        fill="#8D5B2F"
+        stroke="#173124"
+        strokeLinejoin="round"
+        strokeWidth="2.1"
+      />
+      <path
+        d="M16.2 28.8v7.4M31.8 28.8v7.4M21 31.6v7.4M27 31.6v7.4"
+        stroke="#173124"
+        strokeLinecap="round"
+        strokeWidth="2.6"
+      />
+      <path
+        d="M15.6 20.7 24 15.8l8.4 4.9L24 25.6l-8.4-4.9Z"
+        fill="#F1C987"
+        opacity="0.82"
+      />
+      <path
+        d="M16.2 36.2h5M26.8 39h5"
+        stroke="#173124"
+        strokeLinecap="round"
+        strokeWidth="2.4"
+      />
+    </svg>
+  );
 }
 
 function EmptyProductsState({ onCreate }: { onCreate: () => void }) {
@@ -678,11 +709,7 @@ function CreateProductDialog({
                 subFamilyTaxonomies.length === 0
               }
             >
-              {mutation.isPending ? (
-                <Loader2 className="size-4 animate-spin" />
-              ) : (
-                <Sparkles className="size-4" />
-              )}
+              {mutation.isPending ? <Loader2 className="size-4 animate-spin" /> : null}
               Créer le produit
             </Button>
           </div>

@@ -3,6 +3,7 @@ import {
   productOverviewSchema,
   productTaxonomiesResponseSchema,
   productsListResponseSchema,
+  replaceTechnicalSourcesLotResponseSchema,
   resolveTechnicalReviewCaseResponseSchema,
   startTechnicalIngestionResponseSchema,
   uploadTechnicalSourcesResponseSchema,
@@ -11,6 +12,7 @@ import {
   type ProductOverview,
   type ProductTaxonomiesResponse,
   type ProductsListResponse,
+  type ReplaceTechnicalSourcesLotResponse,
   type ResolveTechnicalReviewCaseRequest,
   type ResolveTechnicalReviewCaseResponse,
   type StartTechnicalIngestionResponse,
@@ -117,6 +119,36 @@ export async function uploadTechnicalSources(
   }
 
   return uploadTechnicalSourcesResponseSchema.parse(await response.json());
+}
+
+export async function replaceTechnicalSourcesLot(
+  productId: string,
+  files: File[],
+): Promise<ReplaceTechnicalSourcesLotResponse> {
+  const formData = new FormData();
+
+  for (const file of files) {
+    formData.append("files", file);
+  }
+
+  const response = await _fetchProductApi(
+    `${apiBaseUrl}/api/products/${productId}/technical-sources/replace-lot`,
+    {
+      method: "POST",
+      body: formData,
+    },
+    PRODUCT_UPLOAD_TIMEOUT_MS,
+  );
+
+  if (!response.ok) {
+    const detail = await _extractErrorDetail(response);
+    throw new Error(
+      detail ??
+        `Impossible de remplacer les dossiers techniques (${response.status})`,
+    );
+  }
+
+  return replaceTechnicalSourcesLotResponseSchema.parse(await response.json());
 }
 
 export async function startTechnicalIngestion(

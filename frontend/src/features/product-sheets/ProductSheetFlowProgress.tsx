@@ -1,11 +1,11 @@
-import { Check } from "lucide-react";
-
 import type { ProductFlowStep } from "@/features/product-sheets/productSheetUtils";
 import { cn } from "@/lib/utils";
 
 type ProductSheetFlowProgressProps = {
   className?: string;
   currentStep: ProductFlowStep;
+  mode?: "current" | "next";
+  tone?: "light" | "dark";
 };
 
 const steps: Array<{ id: ProductFlowStep; label: string }> = [
@@ -19,44 +19,45 @@ const steps: Array<{ id: ProductFlowStep; label: string }> = [
 export function ProductSheetFlowProgress({
   className,
   currentStep,
+  mode = "current",
+  tone = "light",
 }: ProductSheetFlowProgressProps) {
   const currentIndex = steps.findIndex((step) => step.id === currentStep);
+  const safeCurrentIndex = currentIndex >= 0 ? currentIndex : 0;
+  const current = steps[safeCurrentIndex];
 
   return (
-    <div className={cn("grid gap-3", className)}>
-      <div className="grid grid-cols-5 gap-2 max-md:grid-cols-1">
-        {steps.map((step, index) => {
-          const isDone = index < currentIndex;
-          const isCurrent = index === currentIndex;
+    <div
+      className={cn("w-64", className)}
+      aria-label={
+        mode === "next"
+          ? `Prochaine étape ${safeCurrentIndex + 1} sur ${steps.length} : ${current.label}`
+          : `Étape ${safeCurrentIndex + 1} sur ${steps.length} : ${current.label}`
+      }
+    >
+      <p
+        className={cn(
+          "text-[0.68rem] font-bold uppercase tracking-[0.14em]",
+          tone === "dark" ? "text-white/58" : "text-[var(--color-muted)]",
+        )}
+      >
+        {mode === "next" ? "Prochaine étape" : `Étape ${safeCurrentIndex + 1}/${steps.length}`} ·{" "}
+        {current.label}
+      </p>
 
-          return (
-            <div
-              key={step.id}
-              className={cn(
-                "rounded-2xl border border-[var(--color-stone)] bg-white/60 p-3",
-                isDone && "border-[var(--color-sage-soft)] bg-[var(--color-sage-soft)]/55",
-                isCurrent && "border-[var(--color-forest)] bg-white shadow-[0_12px_28px_rgba(23,49,36,0.1)]",
-              )}
-            >
-              <div className="flex items-center gap-2">
-                <span
-                  className={cn(
-                    "grid size-7 place-items-center rounded-full bg-[var(--color-surface-raised)] text-xs font-bold text-[var(--color-muted)]",
-                    isDone && "bg-[var(--color-forest)] text-white",
-                    isCurrent && "bg-[var(--color-gold-soft)] text-[var(--color-teak)]",
-                  )}
-                >
-                  {isDone ? <Check className="size-4" /> : index + 1}
-                </span>
-                <span className="text-sm font-semibold text-[var(--color-ink)]">
-                  {step.label}
-                </span>
-              </div>
-            </div>
-          );
-        })}
+      <div className="mt-1.5 grid grid-cols-5 gap-1" aria-hidden="true">
+        {steps.map((step, index) => (
+          <div
+            key={step.id}
+            className={cn(
+              "h-1 rounded-full transition",
+              index < safeCurrentIndex && "bg-[var(--color-sage-soft)]",
+              index === safeCurrentIndex && "bg-[var(--color-gold)]",
+              index > safeCurrentIndex && (tone === "dark" ? "bg-white/14" : "bg-[var(--color-stone)]"),
+            )}
+          />
+        ))}
       </div>
     </div>
   );
 }
-

@@ -56,7 +56,10 @@ export const handlers = [
       languePrincipale: payload.languePrincipale ?? "fr-FR",
       readinessStatus: "PRODUCT_CREATED" as const,
       styleGuideReady: styleGuideOverviewMock.activePack?.status === "ACTIF",
-      commercialSignalsReady: payload.familleCode === "mobilier_jardin",
+      commercialSignalsReady:
+        payload.familleCode === "mobilier_jardin" &&
+        payload.seasonCode === "printemps_ete" &&
+        payload.segmentPrixCode === "premium",
       createdAt: now(),
     };
 
@@ -74,6 +77,7 @@ export const handlers = [
       },
       technical_collection: null,
       sources: [],
+      technical_classifications: [],
       run: null,
       facts: [],
       fact_candidates: [],
@@ -130,6 +134,7 @@ export const handlers = [
         statut: "EN_ATTENTE",
       },
       sources: [...overview.sources, ...sources],
+      technical_classifications: [],
     };
 
     productOverviews.set(productId, nextOverview);
@@ -160,7 +165,6 @@ export const handlers = [
       validation_summary_json: null,
       extraction_steps_json: {
         steps: [],
-        sla_status: "OK",
         total_elapsed_seconds: 0,
       },
     };
@@ -176,6 +180,14 @@ export const handlers = [
         ...source,
         statut: "EN_COURS",
       })),
+      technical_classifications: overview.sources.map((source) => ({
+        source_id: source.id,
+        file_name: source.original_file_name,
+        document_type: "TECHNICAL_SHEET",
+        confidence: 0.96,
+        is_blocking: false,
+        blocking_reason: null,
+      })),
     };
 
     productOverviews.set(productId, nextOverview);
@@ -188,6 +200,66 @@ export const handlers = [
       collection_id: collectionId,
       run,
       sources: nextOverview.sources,
+      reused_existing_run: false,
+    });
+  }),
+  http.post("/api/products/:productId/technical-sources/replace-lot", async ({ params, request }) => {
+    const productId = String(params.productId);
+    const overview = productOverviews.get(productId);
+
+    if (overview === undefined) {
+      return HttpResponse.json({ detail: "Produit introuvable." }, { status: 404 });
+    }
+
+    const collectionId = `mock-technical-collection-${crypto.randomUUID()}`;
+    const formData = await request.formData();
+    const files = formData.getAll("files").filter((value): value is File => value instanceof File);
+    const sources: TechnicalSource[] = files.map((file) => ({
+      id: `mock-source-${crypto.randomUUID()}`,
+      collection_id: collectionId,
+      original_file_name: file.name,
+      storage_uri: `gs://factory-writer-mock/technical-dossiers/${productId}/${file.name}`,
+      storage_content_type: file.type || "application/pdf",
+      storage_size_bytes: file.size,
+      document_type: "UNKNOWN",
+      classification_confidence: null,
+      statut: "EN_COURS",
+    }));
+    const run = {
+      id: `mock-technical-run-${crypto.randomUUID()}`,
+      collection_id: collectionId,
+      workflow_id: `technical-dossier-${crypto.randomUUID()}`,
+      statut: "EN_COURS",
+      current_step: "DOCUMENT_CLASSIFICATION",
+      validation_summary_json: null,
+      extraction_steps_json: {
+        steps: [],
+        total_elapsed_seconds: 0,
+      },
+    };
+    const nextOverview: ProductOverview = {
+      ...overview,
+      technical_collection: {
+        id: collectionId,
+        kind: "TECHNICAL_DOSSIER",
+        statut: "EN_COURS",
+      },
+      sources,
+      technical_classifications: [],
+      run,
+      review_cases: [],
+    };
+
+    productOverviews.set(productId, nextOverview);
+    productSheets = productSheets.map((product) =>
+      product.id === productId ? { ...product, readinessStatus: "INGESTION_RUNNING" } : product,
+    );
+
+    return HttpResponse.json({
+      product: overview.product,
+      collection_id: collectionId,
+      run,
+      sources,
       reused_existing_run: false,
     });
   }),
@@ -217,6 +289,8 @@ export const handlers = [
       case_id: caseId,
       status: "APPROUVE",
       ingestion_run_id: overview.run.id,
+      open_review_case_count: 0,
+      review_complete: true,
     });
   }),
   http.get("/api/style-guide/overview", () => {

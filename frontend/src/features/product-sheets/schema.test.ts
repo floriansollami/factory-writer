@@ -86,6 +86,24 @@ describe("productsListResponseSchema", () => {
           statut: "EN_COURS",
         },
       ],
+      technical_classifications: [
+        {
+          source_id: "source-1",
+          file_name: "fiche_atelier.pdf",
+          document_type: "TECHNICAL_SHEET",
+          confidence: 0.93,
+          is_blocking: false,
+          blocking_reason: null,
+        },
+        {
+          source_id: "source-2",
+          file_name: "cv.pdf",
+          document_type: "OUT_OF_SCOPE_DOCUMENT",
+          confidence: 0.99,
+          is_blocking: true,
+          blocking_reason: "OUT_OF_SCOPE",
+        },
+      ],
       run: {
         id: "run-1",
         collection_id: "collection-1",
@@ -93,7 +111,7 @@ describe("productsListResponseSchema", () => {
         statut: "EN_COURS",
         current_step: "FACT_EXTRACTION",
         validation_summary_json: null,
-        extraction_steps_json: { sla_status: "OK" },
+        extraction_steps_json: { total_elapsed_seconds: 0 },
       },
       facts: [
         {
@@ -112,7 +130,7 @@ describe("productsListResponseSchema", () => {
           case_type: "LOW_CONFIDENCE",
           severity: "BLOCKING",
           status: "A_TRAITER",
-          field_name: "dimension_width_cm",
+          field_name: "dimension_width",
           title: "Largeur à confirmer",
           description: "La largeur extraite manque de confiance.",
           detected_value: "220",
@@ -123,14 +141,34 @@ describe("productsListResponseSchema", () => {
           corrected_unit: null,
           resolution_action: null,
           resolution_comment: null,
+          metadata_json: {
+            confidence: 0.89,
+            threshold: 0.9,
+          },
         },
       ],
       commercial_signal_snapshot: null,
+      generation_readiness: {
+        profile_code: "mobilier_jardin_table_repas_exterieur_product_sheet_v1",
+        ready: false,
+        blocking_count: 1,
+        required_fields: ["sku", "product_name", "dimension_width"],
+        required_missing: ["dimension_width"],
+        low_confidence: [],
+        out_of_bounds: [],
+        contradictions: [],
+        do_not_mention: ["eco_certifications"],
+      },
       product_context_snapshot: null,
     });
 
     expect(payload.sources).toHaveLength(1);
+    expect(payload.technical_classifications).toHaveLength(2);
+    expect(payload.technical_classifications[1]?.blocking_reason).toBe("OUT_OF_SCOPE");
     expect(payload.review_cases[0]?.status).toBe("A_TRAITER");
+    expect(payload.review_cases[0]?.metadata_json).toMatchObject({ threshold: 0.9 });
+    expect(payload.generation_readiness?.required_missing).toEqual(["dimension_width"]);
+    expect(payload.generation_readiness?.do_not_mention).toEqual(["eco_certifications"]);
   });
 
   it("parses technical source upload, ingestion start and review resolution payloads", () => {
@@ -177,10 +215,13 @@ describe("productsListResponseSchema", () => {
       case_id: "case-1",
       status: "APPROUVE",
       ingestion_run_id: "run-1",
+      open_review_case_count: 0,
+      review_complete: true,
     });
 
     expect(upload.sources[0]?.document_type).toBe("UNKNOWN");
     expect(start.run.current_step).toBe("DOCUMENT_CLASSIFICATION");
     expect(resolution.status).toBe("APPROUVE");
+    expect(resolution.review_complete).toBe(true);
   });
 });

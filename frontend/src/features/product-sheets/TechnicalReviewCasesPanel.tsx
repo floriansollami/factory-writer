@@ -9,8 +9,18 @@ import type {
   TechnicalReviewCase,
   TechnicalReviewResolutionAction,
 } from "@/features/product-sheets/schema";
-import { formatCode } from "@/features/product-sheets/productSheetUtils";
+import {
+  formatCode,
+  technicalDocumentTypeLabel,
+} from "@/features/product-sheets/productSheetUtils";
 import { resolveTechnicalReviewCase } from "@/lib/api";
+
+const DOCUMENT_TYPE_OPTIONS = [
+  "TECHNICAL_SHEET",
+  "MATERIAL_SPECIFICATION",
+  "ASSEMBLY_NOTICE",
+  "UNKNOWN",
+];
 
 type TechnicalReviewCasesPanelProps = {
   productId: string;
@@ -21,6 +31,7 @@ type ReviewDecisionState = {
   action: TechnicalReviewResolutionAction;
   correctedValue: string;
   correctedUnit: string;
+  selectedCandidateId: string;
   comment: string;
 };
 
@@ -82,7 +93,9 @@ export function TechnicalReviewCasesPanel({
                       {reviewCase.status === "A_TRAITER" ? "À traiter" : formatCode(reviewCase.status)}
                     </Badge>
                     <span className="text-xs font-bold uppercase tracking-[0.12em] text-[var(--color-muted)]">
-                      {reviewCase.field_name === null
+                      {isClassificationReviewCase(reviewCase)
+                        ? "Classification"
+                        : reviewCase.field_name === null
                         ? "Document"
                         : formatCode(reviewCase.field_name)}
                     </span>
@@ -95,7 +108,13 @@ export function TechnicalReviewCasesPanel({
                   </p>
                   {reviewCase.detected_value !== null ? (
                     <p className="mt-3 text-sm font-semibold text-[var(--color-ink)]">
-                      Valeur détectée : {reviewCase.detected_value}
+                      {isClassificationReviewCase(reviewCase)
+                        ? "Type détecté"
+                        : "Valeur détectée"}{" "}
+                      :{" "}
+                      {isClassificationReviewCase(reviewCase)
+                        ? technicalDocumentTypeLabel(reviewCase.detected_value)
+                        : formatCode(reviewCase.detected_value)}
                       {reviewCase.detected_unit ? ` ${reviewCase.detected_unit}` : ""}
                     </p>
                   ) : null}
@@ -112,7 +131,7 @@ export function TechnicalReviewCasesPanel({
         </div>
       </Card>
 
-      <ResolveReviewCaseDialog
+      <ResolveTechnicalReviewCaseDialog
         onOpenChange={(open) => {
           if (!open) {
             setSelectedCase(null);
@@ -126,7 +145,7 @@ export function TechnicalReviewCasesPanel({
   );
 }
 
-function ResolveReviewCaseDialog({
+export function ResolveTechnicalReviewCaseDialog({
   open,
   onOpenChange,
   productId,
@@ -139,10 +158,15 @@ function ResolveReviewCaseDialog({
 }) {
   const titleId = useId();
   const queryClient = useQueryClient();
+  const isClassificationCase =
+    reviewCase !== null && isClassificationReviewCase(reviewCase);
+  const canApproveDetectedClassification =
+    isClassificationCase && isRoutableDocumentType(reviewCase.detected_value);
   const [decision, setDecision] = useState<ReviewDecisionState>({
     action: "APPROVE_DETECTED_VALUE",
     correctedValue: "",
     correctedUnit: "",
+    selectedCandidateId: "",
     comment: "",
   });
   const mutation = useMutation({
@@ -157,7 +181,13 @@ function ResolveReviewCaseDialog({
         correctedValue:
           decision.action === "CORRECT_VALUE" ? emptyToNull(decision.correctedValue) : null,
         correctedUnit:
-          decision.action === "CORRECT_VALUE" ? emptyToNull(decision.correctedUnit) : null,
+          decision.action === "CORRECT_VALUE" && !isClassificationReviewCase(reviewCase)
+            ? emptyToNull(decision.correctedUnit)
+            : null,
+        selectedCandidateId:
+          decision.action === "APPROVE_DETECTED_VALUE"
+            ? emptyToNull(decision.selectedCandidateId)
+            : null,
         comment: emptyToNull(decision.comment),
       });
     },
@@ -176,9 +206,20 @@ function ResolveReviewCaseDialog({
     }
 
     setDecision({
-      action: "APPROVE_DETECTED_VALUE",
-      correctedValue: "",
+      action:
+        isClassificationReviewCase(reviewCase) &&
+        !isRoutableDocumentType(reviewCase?.detected_value)
+          ? "REQUEST_NEW_DOCUMENT"
+          : !isClassificationReviewCase(reviewCase) &&
+              firstReviewCandidateId(reviewCase) === "" &&
+              reviewCase?.detected_value === null
+            ? "CORRECT_VALUE"
+          : "APPROVE_DETECTED_VALUE",
+      correctedValue: isClassificationReviewCase(reviewCase)
+        ? nextRoutableDocumentType(reviewCase?.detected_value)
+        : "",
       correctedUnit: "",
+      selectedCandidateId: firstReviewCandidateId(reviewCase),
       comment: "",
     });
     mutation.reset();
@@ -187,6 +228,16 @@ function ResolveReviewCaseDialog({
   if (!open || reviewCase === null) {
     return null;
   }
+
+  const classificationMetadata = isClassificationCase
+    ? getClassificationReviewMetadata(reviewCase)
+    : null;
+  const candidateOptions = getReviewCandidateOptions(reviewCase);
+  const isBlockingCase = reviewCase.severity === "BLOCKING";
+  const isContradictionCase = reviewCase.case_type === "CONTRADICTION";
+  const canApproveDetectedFact =
+    !isClassificationCase &&
+    (candidateOptions.length > 0 || reviewCase.detected_value !== null);
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -227,6 +278,26 @@ function ResolveReviewCaseDialog({
           <div className="rounded-[1.25rem] bg-[var(--color-surface-raised)]/65 p-4 text-sm leading-6 text-[var(--color-muted)]">
             <AlertTriangle className="mb-2 size-5 text-[var(--color-teak)]" />
             {reviewCase.description}
+            {classificationMetadata !== null ? (
+              <dl className="mt-3 grid grid-cols-2 gap-2 text-xs text-[var(--color-ink)]">
+                <div className="rounded-xl bg-white/70 px-3 py-2">
+                  <dt className="font-bold uppercase tracking-[0.12em] text-[var(--color-muted)]">
+                    Score
+                  </dt>
+                  <dd className="mt-1 font-semibold">
+                    {formatConfidence(classificationMetadata.confidence)}
+                  </dd>
+                </div>
+                <div className="rounded-xl bg-white/70 px-3 py-2">
+                  <dt className="font-bold uppercase tracking-[0.12em] text-[var(--color-muted)]">
+                    Seuil
+                  </dt>
+                  <dd className="mt-1 font-semibold">
+                    {formatConfidence(classificationMetadata.threshold)}
+                  </dd>
+                </div>
+              </dl>
+            ) : null}
           </div>
 
           <label className="grid gap-2">
@@ -243,14 +314,86 @@ function ResolveReviewCaseDialog({
               }
               value={decision.action}
             >
-              <option value="APPROVE_DETECTED_VALUE">Accepter la valeur détectée</option>
-              <option value="CORRECT_VALUE">Corriger la valeur</option>
-              <option value="REJECT_VALUE">Écarter la valeur</option>
-              <option value="REQUEST_NEW_DOCUMENT">Demander un nouveau document</option>
+              {isClassificationCase ? (
+                <>
+                  {canApproveDetectedClassification ? (
+                    <option value="APPROVE_DETECTED_VALUE">
+                      Confirmer le type de document
+                    </option>
+                  ) : null}
+                  <option value="CORRECT_VALUE">Corriger le type</option>
+                  <option value="REQUEST_NEW_DOCUMENT">Demander un nouveau PDF</option>
+                </>
+              ) : (
+                <>
+                  {canApproveDetectedFact ? (
+                    <option value="APPROVE_DETECTED_VALUE">
+                      {isContradictionCase && candidateOptions.length > 0
+                        ? "Choisir une valeur candidate"
+                        : "Accepter la valeur détectée"}
+                    </option>
+                  ) : null}
+                  <option value="CORRECT_VALUE">Corriger la valeur</option>
+                  {!isBlockingCase ? (
+                    <option value="REJECT_VALUE">Écarter la valeur</option>
+                  ) : null}
+                  <option value="REQUEST_NEW_DOCUMENT">Demander un nouveau document</option>
+                </>
+              )}
             </select>
           </label>
 
-          {decision.action === "CORRECT_VALUE" ? (
+          {decision.action === "APPROVE_DETECTED_VALUE" &&
+          !isClassificationCase &&
+          candidateOptions.length > 0 ? (
+            <label className="grid gap-2">
+              <span className="text-xs font-bold uppercase tracking-[0.13em] text-[var(--color-muted)]">
+                Valeur candidate
+              </span>
+              <select
+                className={inputClassName}
+                onChange={(event) =>
+                  setDecision((current) => ({
+                    ...current,
+                    selectedCandidateId: event.target.value,
+                  }))
+                }
+                value={decision.selectedCandidateId}
+              >
+                {candidateOptions.map((candidate) => (
+                  <option key={candidate.id} value={candidate.id}>
+                    {candidate.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+
+          {decision.action === "CORRECT_VALUE" && isClassificationCase ? (
+            <label className="grid gap-2">
+              <span className="text-xs font-bold uppercase tracking-[0.13em] text-[var(--color-muted)]">
+                Type corrigé
+              </span>
+              <select
+                className={inputClassName}
+                onChange={(event) =>
+                  setDecision((current) => ({
+                    ...current,
+                    correctedValue: event.target.value,
+                  }))
+                }
+                value={decision.correctedValue}
+              >
+                {DOCUMENT_TYPE_OPTIONS.map((documentType) => (
+                  <option key={documentType} value={documentType}>
+                    {technicalDocumentTypeLabel(documentType)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+
+          {decision.action === "CORRECT_VALUE" && !isClassificationCase ? (
             <div className="grid grid-cols-2 gap-4 max-md:grid-cols-1">
               <label className="grid gap-2">
                 <span className="text-xs font-bold uppercase tracking-[0.13em] text-[var(--color-muted)]">
@@ -336,4 +479,111 @@ function emptyToNull(value: string): string | null {
   const trimmed = value.trim();
 
   return trimmed.length > 0 ? trimmed : null;
+}
+
+function isClassificationReviewCase(reviewCase: TechnicalReviewCase | null): boolean {
+  return reviewCase?.case_type === "CLASSIFICATION_UNCERTAIN";
+}
+
+function getClassificationReviewMetadata(
+  reviewCase: TechnicalReviewCase,
+): { confidence: number | null; threshold: number | null } | null {
+  const metadata = reviewCase.metadata_json;
+  if (metadata === null || typeof metadata !== "object" || Array.isArray(metadata)) {
+    return null;
+  }
+
+  return {
+    confidence: toNullableNumber((metadata as Record<string, unknown>).confidence),
+    threshold: toNullableNumber((metadata as Record<string, unknown>).threshold),
+  };
+}
+
+function getReviewCandidateOptions(
+  reviewCase: TechnicalReviewCase | null,
+): Array<{ id: string; label: string }> {
+  const metadata = reviewCase?.metadata_json;
+  if (metadata === null || typeof metadata !== "object" || Array.isArray(metadata)) {
+    return [];
+  }
+
+  const candidates = (metadata as Record<string, unknown>).candidates;
+  if (!Array.isArray(candidates)) {
+    const candidateId = (metadata as Record<string, unknown>).candidate_id;
+    if (typeof candidateId !== "string" || candidateId.length === 0) {
+      return [];
+    }
+    return [
+      {
+        id: candidateId,
+        label: reviewCandidateLabel(metadata as Record<string, unknown>),
+      },
+    ];
+  }
+
+  return candidates
+    .map((candidate) => {
+      if (candidate === null || typeof candidate !== "object" || Array.isArray(candidate)) {
+        return null;
+      }
+      const candidateRecord = candidate as Record<string, unknown>;
+      const candidateId = candidateRecord.candidate_id;
+      if (typeof candidateId !== "string" || candidateId.length === 0) {
+        return null;
+      }
+      return {
+        id: candidateId,
+        label: reviewCandidateLabel(candidateRecord),
+      };
+    })
+    .filter((candidate): candidate is { id: string; label: string } => candidate !== null);
+}
+
+function firstReviewCandidateId(reviewCase: TechnicalReviewCase | null): string {
+  return getReviewCandidateOptions(reviewCase)[0]?.id ?? "";
+}
+
+function reviewCandidateLabel(candidate: Record<string, unknown>): string {
+  const value =
+    stringValue(candidate.normalized_value) ??
+    stringValue(candidate.raw_value) ??
+    stringValue(candidate.detected_value) ??
+    "Valeur détectée";
+  const unit = stringValue(candidate.unit);
+  const score = toNullableNumber(candidate.confidence ?? candidate.extractor_confidence);
+  const scoreLabel = score === null ? "score non renseigné" : formatConfidence(score);
+  return `${value}${unit && !value.includes(unit) ? ` ${unit}` : ""} · ${scoreLabel}`;
+}
+
+function stringValue(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0 ? value : null;
+}
+
+function toNullableNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function formatConfidence(value: number | null): string {
+  return value === null
+    ? "Non disponible"
+    : `${truncateDecimal(value * 100, 2).toFixed(2)} %`;
+}
+
+function truncateDecimal(value: number, decimals: number) {
+  const factor = 10 ** decimals;
+  return Math.trunc(value * factor) / factor;
+}
+
+function isRoutableDocumentType(value: string | null | undefined): boolean {
+  return (
+    value === "TECHNICAL_SHEET" ||
+    value === "MATERIAL_SPECIFICATION" ||
+    value === "ASSEMBLY_NOTICE"
+  );
+}
+
+function nextRoutableDocumentType(value: string | null | undefined): string {
+  return value !== null && value !== undefined && isRoutableDocumentType(value)
+    ? value
+    : "TECHNICAL_SHEET";
 }

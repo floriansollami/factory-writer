@@ -63,19 +63,32 @@ const technicalCollectionSchema = z.object({
   statut: z.string(),
 });
 
-export const technicalSourceSchema = z.object({
+const technicalSourceSchema = z.object({
   id: z.string(),
   collection_id: z.string(),
   original_file_name: z.string(),
   storage_uri: z.string(),
+  storage_generation: z.string().nullable().optional(),
+  storage_metageneration: z.string().nullable().optional(),
   storage_content_type: z.string().nullable().optional(),
   storage_size_bytes: z.number().nullable().optional(),
   document_type: z.string(),
   classification_confidence: z.number().nullable(),
   statut: z.string(),
+  created_at: z.string().nullable().optional(),
+  updated_at: z.string().nullable().optional(),
 });
 
-export const technicalRunSchema = z.object({
+const technicalClassificationSchema = z.object({
+  source_id: z.string(),
+  file_name: z.string(),
+  document_type: z.string(),
+  confidence: z.number().nullable(),
+  is_blocking: z.boolean(),
+  blocking_reason: z.string().nullable(),
+});
+
+const technicalRunSchema = z.object({
   id: z.string(),
   collection_id: z.string(),
   workflow_id: z.string().nullable(),
@@ -83,18 +96,23 @@ export const technicalRunSchema = z.object({
   current_step: z.string(),
   validation_summary_json: z.unknown().nullable(),
   extraction_steps_json: z.unknown().nullable(),
+  created_at: z.string().nullable().optional(),
+  updated_at: z.string().nullable().optional(),
+  started_at: z.string().nullable().optional(),
+  completed_at: z.string().nullable().optional(),
 });
 
-export const technicalFactSchema = z.object({
+const technicalFactSchema = z.object({
   id: z.string(),
   field_name: z.string(),
+  occurrence_index: z.number().default(0),
   value: z.string(),
   unit: z.string().nullable(),
   validation_source: z.string(),
   validated_at: z.string(),
 });
 
-export const technicalFactCandidateSchema = z.object({
+const technicalFactCandidateSchema = z.object({
   id: z.string(),
   source_id: z.string(),
   field_name: z.string(),
@@ -110,8 +128,9 @@ export const technicalFactCandidateSchema = z.object({
   source_bbox_json: z.unknown().nullable(),
 });
 
-export const technicalReviewCaseSchema = z.object({
+const technicalReviewCaseSchema = z.object({
   id: z.string(),
+  source_id: z.string().nullable().optional(),
   case_type: z.string(),
   severity: z.string(),
   status: z.string(),
@@ -126,17 +145,38 @@ export const technicalReviewCaseSchema = z.object({
   corrected_unit: z.string().nullable(),
   resolution_action: z.string().nullable(),
   resolution_comment: z.string().nullable(),
+  metadata_json: z.unknown().nullable().optional(),
 });
+
+const generationReadinessSchema = z
+  .object({
+    profile_code: z.string().nullable().optional(),
+    famille_code: z.string().nullable().optional(),
+    sous_famille_code: z.string().nullable().optional(),
+    channel_code: z.string().nullable().optional(),
+    ready: z.boolean().optional(),
+    blocking_count: z.number().optional(),
+    required_fields: z.array(z.string()).optional(),
+    required_missing: z.array(z.string()).optional(),
+    low_confidence: z.array(z.unknown()).optional(),
+    out_of_bounds: z.array(z.unknown()).optional(),
+    contradictions: z.array(z.unknown()).optional(),
+    do_not_mention: z.array(z.string()).optional(),
+    field_checks: z.array(z.unknown()).optional(),
+  })
+  .passthrough();
 
 export const productOverviewSchema = z.object({
   product: productOverviewProductSchema,
   technical_collection: technicalCollectionSchema.nullable(),
   sources: z.array(technicalSourceSchema),
+  technical_classifications: z.array(technicalClassificationSchema).default([]),
   run: technicalRunSchema.nullable(),
   facts: z.array(technicalFactSchema),
   fact_candidates: z.array(technicalFactCandidateSchema),
   review_cases: z.array(technicalReviewCaseSchema),
   commercial_signal_snapshot: z.unknown().nullable(),
+  generation_readiness: generationReadinessSchema.nullable().optional(),
   product_context_snapshot: z.unknown().nullable(),
 });
 
@@ -152,11 +192,14 @@ export const startTechnicalIngestionResponseSchema = z.object({
   reused_existing_run: z.boolean(),
 });
 
-export const resolveTechnicalReviewCaseRequestSchema = z.object({
+export const replaceTechnicalSourcesLotResponseSchema = startTechnicalIngestionResponseSchema;
+
+const resolveTechnicalReviewCaseRequestSchema = z.object({
   action: technicalReviewResolutionActionSchema,
   resolvedBy: z.string().trim().min(1).optional(),
   correctedValue: z.string().trim().nullable().optional(),
   correctedUnit: z.string().trim().nullable().optional(),
+  selectedCandidateId: z.string().trim().nullable().optional(),
   comment: z.string().trim().nullable().optional(),
 });
 
@@ -164,6 +207,8 @@ export const resolveTechnicalReviewCaseResponseSchema = z.object({
   case_id: z.string(),
   status: z.string(),
   ingestion_run_id: z.string(),
+  open_review_case_count: z.number(),
+  review_complete: z.boolean(),
 });
 
 const createProductRequestSchema = z.object({
@@ -196,9 +241,9 @@ export type ProductTaxonomy = z.infer<typeof productTaxonomySchema>;
 export type ProductTaxonomiesResponse = z.infer<typeof productTaxonomiesResponseSchema>;
 export type ProductOverview = z.infer<typeof productOverviewSchema>;
 export type TechnicalSource = z.infer<typeof technicalSourceSchema>;
-export type TechnicalRun = z.infer<typeof technicalRunSchema>;
-export type TechnicalFact = z.infer<typeof technicalFactSchema>;
+export type TechnicalClassification = z.infer<typeof technicalClassificationSchema>;
 export type TechnicalFactCandidate = z.infer<typeof technicalFactCandidateSchema>;
+export type TechnicalRun = z.infer<typeof technicalRunSchema>;
 export type TechnicalReviewCase = z.infer<typeof technicalReviewCaseSchema>;
 export type TechnicalReviewResolutionAction = z.infer<
   typeof technicalReviewResolutionActionSchema
@@ -208,6 +253,9 @@ export type UploadTechnicalSourcesResponse = z.infer<
 >;
 export type StartTechnicalIngestionResponse = z.infer<
   typeof startTechnicalIngestionResponseSchema
+>;
+export type ReplaceTechnicalSourcesLotResponse = z.infer<
+  typeof replaceTechnicalSourcesLotResponseSchema
 >;
 export type ResolveTechnicalReviewCaseRequest = z.infer<
   typeof resolveTechnicalReviewCaseRequestSchema
