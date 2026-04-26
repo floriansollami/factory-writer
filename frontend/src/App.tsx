@@ -31,6 +31,11 @@ const StyleGuideReviewPage = lazy(() =>
     default: module.StyleGuideReviewPage,
   })),
 );
+const SettingsPage = lazy(() =>
+  import("@/features/settings/SettingsPage").then((module) => ({
+    default: module.SettingsPage,
+  })),
+);
 
 export function App() {
   return (
@@ -41,6 +46,7 @@ export function App() {
         <Route path="/marketing-signals" element={<MarketingSignalsRoute />} />
         <Route path="/product-sheets" element={<ProductSheetsHomeRoute />} />
         <Route path="/product-sheets/:productId" element={<ProductSheetDetailRoute />} />
+        <Route path="/settings" element={<SettingsRoute />} />
         <Route path="/style-guide" element={<StyleGuideHomeRoute />} />
         <Route path="/style-guide/review" element={<StyleGuideReviewRoute />} />
         <Route path="*" element={<Navigate to="/admin" replace />} />
@@ -63,6 +69,7 @@ function AdminHomeRoute() {
   return (
     <AdminHomePage
       onOpenProductSheets={() => navigate("/product-sheets")}
+      onOpenSettings={() => navigate("/settings")}
       onOpenStyleGuide={() => navigate("/style-guide")}
     />
   );
@@ -74,12 +81,8 @@ function ProductSheetsHomeRoute() {
   return (
     <ProductSheetsHomePage
       onOpenAdminHome={() => navigate("/admin")}
-      onOpenMarketingSignals={(productId, returnTo) =>
-        navigate(
-          `/marketing-signals?productId=${encodeURIComponent(productId)}&returnTo=${encodeURIComponent(returnTo)}`,
-        )
-      }
       onOpenProductDetail={(productId) => navigate(`/product-sheets/${productId}`)}
+      onOpenSettings={() => navigate("/settings")}
       onOpenStyleGuide={(returnTo) =>
         navigate(
           returnTo === undefined
@@ -98,6 +101,7 @@ function MarketingSignalsRoute() {
     <MarketingSignalsPage
       onOpenAdminHome={() => navigate("/admin")}
       onOpenProductSheets={() => navigate("/product-sheets")}
+      onOpenSettings={() => navigate("/settings")}
       onOpenStyleGuide={() => navigate("/style-guide")}
       onReturnTo={(returnTo) => navigate(returnTo)}
     />
@@ -112,12 +116,8 @@ function ProductSheetDetailRoute() {
     <ProductSheetDetailPage
       onBack={() => navigate("/product-sheets")}
       onOpenAdminHome={() => navigate("/admin")}
-      onOpenMarketingSignals={(targetProductId, returnTo) =>
-        navigate(
-          `/marketing-signals?productId=${encodeURIComponent(targetProductId)}&returnTo=${encodeURIComponent(returnTo)}`,
-        )
-      }
       onOpenProductSheets={() => navigate("/product-sheets")}
+      onOpenSettings={() => navigate("/settings")}
       onOpenStyleGuide={(returnTo) =>
         navigate(
           returnTo === undefined
@@ -137,6 +137,7 @@ function StyleGuideHomeRoute() {
     <StyleGuideHomePage
       onOpenAdminHome={() => navigate("/admin")}
       onOpenProductSheets={() => navigate("/product-sheets")}
+      onOpenSettings={() => navigate("/settings")}
       onOpenRulesReview={(returnTo) =>
         navigate(
           returnTo === undefined
@@ -156,6 +157,19 @@ function StyleGuideReviewRoute() {
       onBack={() => navigate("/style-guide")}
       onOpenAdminHome={() => navigate("/admin")}
       onOpenProductSheets={() => navigate("/product-sheets")}
+      onOpenSettings={() => navigate("/settings")}
+    />
+  );
+}
+
+function SettingsRoute() {
+  const navigate = useNavigate();
+
+  return (
+    <SettingsPage
+      onOpenAdminHome={() => navigate("/admin")}
+      onOpenProductSheets={() => navigate("/product-sheets")}
+      onOpenStyleGuide={() => navigate("/style-guide")}
     />
   );
 }

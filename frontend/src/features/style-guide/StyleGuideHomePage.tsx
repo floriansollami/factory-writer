@@ -5,7 +5,6 @@ import {
   CheckCircle2,
   Clock3,
   FileCheck2,
-  Flower2,
   Loader2,
   PlayCircle,
   ShieldCheck,
@@ -15,6 +14,7 @@ import {
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
+import { AxolotlLogo } from "@/components/brand/AxolotlLogo";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardTitle } from "@/components/ui/card";
@@ -27,13 +27,14 @@ import type {
 } from "@/features/style-guide/schema";
 import { UploadGuideDialog } from "@/features/style-guide/UploadGuideDialog";
 import { getStyleGuideOverview, startStyleGuideIngestion } from "@/lib/api";
+import { formatAdminDateTime } from "@/lib/dateTime";
 import { cn } from "@/lib/utils";
 
 const navItems = [
-  "Accueil admin",
-  "Guide de style",
+  "Accueil",
   "Fiches produit",
-  "Signaux marketing",
+  "Guide de style",
+  "Paramètres",
 ];
 
 const emptyStyleGuideOverview: StyleGuideOverview = {
@@ -53,11 +54,13 @@ const emptyStyleGuideOverview: StyleGuideOverview = {
 type StyleGuideHomePageProps = {
   onOpenAdminHome: () => void;
   onOpenProductSheets: () => void;
+  onOpenSettings: () => void;
   onOpenRulesReview: (returnTo?: string) => void;
 };
 
 type CurrentWorkflow = NonNullable<StyleGuideOverview["currentWorkflow"]>;
 type PendingDocumentSource = NonNullable<StyleGuideOverview["pendingDocumentSource"]>;
+type ExecutionMetadata = CurrentWorkflow["metadata"];
 
 type OptimisticIngestion = {
   fileName: string;
@@ -67,6 +70,7 @@ type OptimisticIngestion = {
 export function StyleGuideHomePage({
   onOpenAdminHome,
   onOpenProductSheets,
+  onOpenSettings,
   onOpenRulesReview,
 }: StyleGuideHomePageProps) {
   const queryClient = useQueryClient();
@@ -176,7 +180,7 @@ export function StyleGuideHomePage({
           <div className="relative">
             <div className="flex items-center gap-3">
               <div className="grid size-11 place-items-center rounded-2xl bg-white/12">
-                <Flower2 className="size-6" />
+                <AxolotlLogo className="size-7" />
               </div>
               <div>
                 <p className="font-serif text-xl font-semibold tracking-[-0.03em]">Axolotl</p>
@@ -194,17 +198,20 @@ export function StyleGuideHomePage({
                     item === "Guide de style" && "bg-white text-[var(--color-forest)] hover:bg-white hover:text-[var(--color-forest)]",
                   )}
                   onClick={
-                    item === "Accueil admin"
+                    item === "Accueil"
                       ? onOpenAdminHome
                       : item === "Fiches produit"
                         ? onOpenProductSheets
+                        : item === "Paramètres"
+                          ? onOpenSettings
                         : undefined
                   }
                 >
                   {item}
-                  {item === "Accueil admin" ? <ArrowRight className="size-4" /> : null}
+                  {item === "Accueil" ? <ArrowRight className="size-4" /> : null}
                   {item === "Fiches produit" ? <ArrowRight className="size-4" /> : null}
                   {item === "Guide de style" ? <ArrowRight className="size-4" /> : null}
+                  {item === "Paramètres" ? <ArrowRight className="size-4" /> : null}
                 </button>
               ))}
             </nav>
@@ -307,6 +314,7 @@ export function StyleGuideHomePage({
                   />
                 </Card>
               </section>
+
             </>
           )}
         </section>
@@ -353,8 +361,8 @@ function UploadedSourceDashboard({
       <section className="mt-8">
         <Card className="relative overflow-hidden bg-[linear-gradient(145deg,#fffdf7,#eef2ea)] p-8">
           <div className="absolute -right-20 -top-24 size-72 rounded-full bg-[var(--color-sage-soft)] blur-3xl" />
-          <div className="relative grid grid-cols-[1fr_auto] items-start gap-8 max-2xl:grid-cols-1">
-            <div>
+          <div className="relative grid grid-cols-[minmax(0,1fr)_24rem] items-start gap-8 max-2xl:grid-cols-1">
+            <div className="min-w-0">
               <Badge tone="success">PDF importé</Badge>
               <h2 className="mt-4 max-w-2xl font-serif text-4xl font-semibold leading-tight tracking-[-0.045em] text-[var(--color-ink)] max-md:text-3xl">
                 Vérifier le guide avant analyse
@@ -381,16 +389,30 @@ function UploadedSourceDashboard({
               ) : null}
             </div>
 
-            <div className="min-w-80 rounded-[1.5rem] bg-white/80 p-5 shadow-[0_16px_40px_rgba(27,28,26,0.07)]">
+            <div className="w-full max-w-96 justify-self-end rounded-[1.5rem] bg-white/80 p-5 shadow-[0_16px_40px_rgba(27,28,26,0.07)] max-2xl:max-w-none">
               <p className="text-xs font-bold uppercase tracking-[0.14em] text-[var(--color-muted)]">
                 Document sélectionné
               </p>
-              <div className="mt-4 flex items-start gap-3">
-                <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-[var(--color-sage-soft)] text-[var(--color-forest)]">
-                  <FileCheck2 className="size-5" />
-                </span>
-                <div className="min-w-0">
-                  <p className="truncate font-semibold text-[var(--color-ink)]">{documentSource.fileName}</p>
+              <div className="mt-4 rounded-[1.35rem] bg-[var(--color-ivory)] p-1.5">
+                <div className="grid gap-1.5" role="tablist" aria-label="Document du guide de style">
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected="true"
+                    className="flex min-w-0 items-center gap-3 rounded-[1.05rem] bg-white px-3 py-2.5 text-left text-[var(--color-forest)] shadow-[0_10px_24px_rgba(27,28,26,0.07)]"
+                  >
+                    <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-[var(--color-sage-soft)] text-[var(--color-forest)]">
+                      <FileCheck2 className="size-4" />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[0.68rem] font-bold uppercase tracking-[0.14em]">
+                        PDF 1
+                      </span>
+                      <span className="block truncate text-sm font-semibold">
+                        {documentSource.fileName}
+                      </span>
+                    </span>
+                  </button>
                 </div>
               </div>
 
@@ -398,31 +420,37 @@ function UploadedSourceDashboard({
                 <summary className="cursor-pointer font-semibold text-[var(--color-forest)]">
                   Champs document_source
                 </summary>
-                <dl className="mt-3 grid gap-3">
+                <dl className="mt-3 grid min-h-[24rem] gap-3">
                   <div>
-                    <dt className="font-semibold text-[var(--color-ink)]">id</dt>
-                    <dd className="mt-1 break-all leading-5">{documentSource.documentSourceId}</dd>
+                    <dt className="truncate font-semibold text-[var(--color-ink)]">
+                      {documentSource.fileName}
+                    </dt>
+                    <dd className="mt-1 min-h-5 break-all leading-5">{documentSource.documentSourceId}</dd>
                   </div>
                   <div>
                     <dt className="font-semibold text-[var(--color-ink)]">storage_uri</dt>
-                    <dd className="mt-1 break-all leading-5">{documentSource.storageUri}</dd>
+                    <dd className="mt-1 min-h-20 break-all leading-5">{documentSource.storageUri}</dd>
                   </div>
                   <div>
                     <dt className="font-semibold text-[var(--color-ink)]">storage_generation</dt>
-                    <dd className="mt-1 break-all leading-5">{formatNullable(documentSource.storageGeneration)}</dd>
+                    <dd className="mt-1 min-h-5 break-all leading-5">{formatNullable(documentSource.storageGeneration)}</dd>
                   </div>
                   <div>
                     <dt className="font-semibold text-[var(--color-ink)]">storage_metageneration</dt>
-                    <dd className="mt-1 break-all leading-5">{formatNullable(documentSource.storageMetageneration)}</dd>
+                    <dd className="mt-1 min-h-5 break-all leading-5">{formatNullable(documentSource.storageMetageneration)}</dd>
                   </div>
                   <div>
                     <dt className="font-semibold text-[var(--color-ink)]">created_at</dt>
-                    <dd className="mt-1 leading-5">{formatDateTime(documentSource.uploadedAt)}</dd>
+                    <dd className="mt-1 min-h-5 leading-5">
+                      {formatAdminDateTime(documentSource.uploadedAt)}
+                    </dd>
                   </div>
                   {documentSource.updatedAt ? (
                     <div>
                       <dt className="font-semibold text-[var(--color-ink)]">updated_at</dt>
-                      <dd className="mt-1 leading-5">{formatDateTime(documentSource.updatedAt)}</dd>
+                      <dd className="mt-1 min-h-5 leading-5">
+                        {formatAdminDateTime(documentSource.updatedAt)}
+                      </dd>
                     </div>
                   ) : null}
                 </dl>
@@ -517,6 +545,7 @@ function IngestionProgressDashboard({
               const isReviewStepReady = isReviewReady && step.id === "editorial-review";
               const canOpenReview = isReviewStepReady && onOpenRulesReview !== undefined;
               const isRunningStep = step.status === "running" && !isReviewStepReady;
+              const stepMetadata = metadataFieldsForWorkflowStep(step.id, workflow.metadata);
 
               return (
                 <li
@@ -554,6 +583,7 @@ function IngestionProgressDashboard({
                       </Badge>
                     </div>
                     <p className="mt-1 text-sm leading-6 text-[var(--color-muted)]">{step.description}</p>
+                    <StepMetadata fields={stepMetadata} />
                     {canOpenReview ? (
                       <div className="mt-3 flex flex-wrap items-center gap-3">
                         <span className="rounded-full bg-white/82 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.16em] text-[var(--color-teak)] shadow-[inset_0_0_0_1px_rgba(212,178,84,0.18)]">
@@ -586,6 +616,72 @@ function IngestionProgressDashboard({
       </section>
     </>
   );
+}
+
+function StepMetadata({ fields }: { fields: ExecutionMetadata["documentAi"] }) {
+  if (fields.length === 0) {
+    return null;
+  }
+
+  return (
+    <details className="group mt-2 w-full max-w-2xl">
+      <summary className="flex w-44 cursor-pointer list-none items-center gap-2 py-1 text-[0.72rem] font-bold uppercase tracking-[0.14em] text-[var(--color-teak)] transition-colors hover:text-[var(--color-forest)] [&::-webkit-details-marker]:hidden">
+        <span
+          aria-hidden="true"
+          className="size-0 border-y-[4px] border-l-[6px] border-y-transparent border-l-current transition-transform group-open:rotate-90"
+        />
+        Détails techniques
+      </summary>
+      <dl className="mt-2 grid w-full grid-cols-2 gap-2 rounded-2xl bg-white/70 p-3 text-xs shadow-[inset_0_0_0_1px_rgba(23,49,36,0.08)] max-sm:grid-cols-1">
+        {fields.map((field) => (
+          <MetadataField key={field.label} label={field.label} value={field.value} />
+        ))}
+      </dl>
+    </details>
+  );
+}
+
+function MetadataField({ label, value }: { label: string; value: string }) {
+  const { primary, secondary } = splitMetadataValue(value);
+
+  return (
+    <div className="min-w-0 rounded-xl bg-[var(--color-ivory)]/80 px-3 py-2">
+      <dt className="text-[0.64rem] font-bold uppercase tracking-[0.14em] text-[var(--color-muted)]">
+        {label}
+      </dt>
+      <dd className="mt-1 font-semibold leading-5 text-[var(--color-forest)]" title={value}>
+        <span className={cn("block", secondary ? "whitespace-nowrap" : "break-words")}>
+          {primary}
+        </span>
+        {secondary ? (
+          <span className="mt-0.5 block text-[0.68rem] font-bold text-[var(--color-muted)]">
+            {secondary}
+          </span>
+        ) : null}
+      </dd>
+    </div>
+  );
+}
+
+function splitMetadataValue(value: string): { primary: string; secondary: string | null } {
+  const match = value.match(/^(.*)\s(\(Gemini 3\.0 Flash\))$/);
+  if (!match) {
+    return { primary: value, secondary: null };
+  }
+
+  return { primary: match[1], secondary: match[2] };
+}
+
+function metadataFieldsForWorkflowStep(stepId: string, metadata: ExecutionMetadata) {
+  if (stepId === "document-ai") {
+    return metadata.documentAi;
+  }
+
+  if (stepId === "draft-pack") {
+    return metadata.llm;
+  }
+
+  return [];
 }
 
 function EmptyStyleGuideDashboard({ onUploadGuide }: { onUploadGuide: () => void }) {
@@ -686,20 +782,24 @@ function buildOptimisticWorkflow(started: StyleGuideStartIngestionResponse): Cur
     currentActivity: "Extraction du contenu",
     elapsedTime: "moins d’une minute",
     progress: 35,
+    metadata: {
+      documentAi: [],
+      llm: [],
+    },
     steps: [
       {
         id: "document-ai",
         label: "Extraction du contenu",
         description: "Le contenu du PDF est analysé et structuré pour préparer les règles.",
         status: "running",
-        eta: "souvent 1 à 3 min",
+        eta: "souvent 1 min",
       },
       {
         id: "draft-pack",
         label: "Pack candidat",
         description: "Les règles de voix, de ton et de formulation sont préparées pour la revue.",
         status: "pending",
-        eta: "souvent 1 à 3 min",
+        eta: "souvent 15 secondes",
       },
       {
         id: "editorial-review",
@@ -722,6 +822,7 @@ function buildCandidateReadyWorkflow(
     currentActivity: "Revue éditoriale",
     elapsedTime: "analyse terminée",
     progress: 100,
+    metadata: pack.metadata,
     steps: [
       {
         id: "document-ai",
@@ -776,22 +877,6 @@ function packStatusLabel(status: NonNullable<StyleGuideOverview["activePack"]>["
     return "Archivé";
   }
   return "À relire";
-}
-
-function formatDateTime(value: string) {
-  if (!value) {
-    return "Non disponible";
-  }
-
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return "Non disponible";
-  }
-
-  return new Intl.DateTimeFormat("fr-FR", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(date);
 }
 
 function formatWorkflowElapsedTime(value: string) {

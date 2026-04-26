@@ -3,13 +3,13 @@ import {
   ArrowLeft,
   ArrowRight,
   CheckCircle2,
-  Flower2,
   Loader2,
   Megaphone,
   SearchX,
 } from "lucide-react";
 import { useSearchParams } from "react-router";
 
+import { AxolotlLogo } from "@/components/brand/AxolotlLogo";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardTitle } from "@/components/ui/card";
@@ -19,15 +19,16 @@ import { listProducts } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 const navItems = [
-  "Accueil admin",
-  "Guide de style",
+  "Accueil",
   "Fiches produit",
-  "Signaux marketing",
+  "Guide de style",
+  "Paramètres",
 ];
 
 type MarketingSignalsPageProps = {
   onOpenAdminHome: () => void;
   onOpenProductSheets: () => void;
+  onOpenSettings: () => void;
   onOpenStyleGuide: () => void;
   onReturnTo: (returnTo: string) => void;
 };
@@ -35,6 +36,7 @@ type MarketingSignalsPageProps = {
 export function MarketingSignalsPage({
   onOpenAdminHome,
   onOpenProductSheets,
+  onOpenSettings,
   onOpenStyleGuide,
   onReturnTo,
 }: MarketingSignalsPageProps) {
@@ -56,7 +58,7 @@ export function MarketingSignalsPage({
           <div className="relative">
             <div className="flex items-center gap-3">
               <div className="grid size-11 place-items-center rounded-2xl bg-white/12">
-                <Flower2 className="size-6" />
+                <AxolotlLogo className="size-7" />
               </div>
               <div>
                 <p className="font-serif text-xl font-semibold tracking-[-0.03em]">Axolotl</p>
@@ -71,21 +73,21 @@ export function MarketingSignalsPage({
                   type="button"
                   className={cn(
                     "flex w-full items-center justify-between rounded-full px-4 py-3 text-left text-sm font-semibold text-white/70 transition hover:bg-white/10 hover:text-white",
-                    item === "Signaux marketing" &&
-                      "bg-white text-[var(--color-forest)] hover:bg-white hover:text-[var(--color-forest)]",
                   )}
                   onClick={
-                    item === "Accueil admin"
+                    item === "Accueil"
                       ? onOpenAdminHome
                       : item === "Guide de style"
-                        ? onOpenStyleGuide
-                        : item === "Fiches produit"
-                          ? onOpenProductSheets
-                          : undefined
+                      ? onOpenStyleGuide
+                      : item === "Fiches produit"
+                        ? onOpenProductSheets
+                        : item === "Paramètres"
+                          ? onOpenSettings
+                        : undefined
                   }
                 >
                   {item}
-                  {item !== "Signaux marketing" ? <ArrowRight className="size-4" /> : null}
+                  <ArrowRight className="size-4" />
                 </button>
               ))}
             </nav>

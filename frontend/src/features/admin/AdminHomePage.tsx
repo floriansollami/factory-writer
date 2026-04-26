@@ -2,7 +2,6 @@ import {
   ArrowRight,
   CheckCircle2,
   FileText,
-  Flower2,
   Gauge,
   Loader2,
   Megaphone,
@@ -12,6 +11,7 @@ import {
 import { lazy, Suspense } from "react";
 import { useQuery } from "@tanstack/react-query";
 
+import { AxolotlLogo } from "@/components/brand/AxolotlLogo";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardTitle } from "@/components/ui/card";
@@ -23,14 +23,15 @@ import { cn } from "@/lib/utils";
 const WorkflowPipelineGraph = lazy(() => import("@/features/style-guide/WorkflowPipelineGraph"));
 
 const navItems = [
-  "Accueil admin",
-  "Guide de style",
+  "Accueil",
   "Fiches produit",
-  "Signaux marketing",
+  "Guide de style",
+  "Paramètres",
 ];
 
 type AdminHomePageProps = {
   onOpenProductSheets: () => void;
+  onOpenSettings: () => void;
   onOpenStyleGuide: () => void;
 };
 
@@ -45,7 +46,11 @@ type PrerequisiteItem = {
   icon: typeof ShieldCheck;
 };
 
-export function AdminHomePage({ onOpenProductSheets, onOpenStyleGuide }: AdminHomePageProps) {
+export function AdminHomePage({
+  onOpenProductSheets,
+  onOpenSettings,
+  onOpenStyleGuide,
+}: AdminHomePageProps) {
   const { data: styleGuideOverview } = useQuery({
     queryKey: ["style-guide-overview"],
     queryFn: getStyleGuideOverview,
@@ -63,7 +68,7 @@ export function AdminHomePage({ onOpenProductSheets, onOpenStyleGuide }: AdminHo
           <div className="relative">
             <div className="flex items-center gap-3">
               <div className="grid size-11 place-items-center rounded-2xl bg-white/12">
-                <Flower2 className="size-6" />
+                <AxolotlLogo className="size-7" />
               </div>
               <div>
                 <p className="font-serif text-xl font-semibold tracking-[-0.03em]">Axolotl</p>
@@ -78,19 +83,22 @@ export function AdminHomePage({ onOpenProductSheets, onOpenStyleGuide }: AdminHo
                   type="button"
                   className={cn(
                     "flex w-full items-center justify-between rounded-full px-4 py-3 text-left text-sm font-semibold text-white/70 transition hover:bg-white/10 hover:text-white",
-                    item === "Accueil admin" && "bg-white text-[var(--color-forest)] hover:bg-white hover:text-[var(--color-forest)]",
+                    item === "Accueil" && "bg-white text-[var(--color-forest)] hover:bg-white hover:text-[var(--color-forest)]",
                   )}
                   onClick={
                     item === "Guide de style"
                       ? onOpenStyleGuide
                       : item === "Fiches produit"
                         ? onOpenProductSheets
+                        : item === "Paramètres"
+                          ? onOpenSettings
                         : undefined
                   }
                 >
                   {item}
                   {item === "Guide de style" ? <ArrowRight className="size-4" /> : null}
                   {item === "Fiches produit" ? <ArrowRight className="size-4" /> : null}
+                  {item === "Paramètres" ? <ArrowRight className="size-4" /> : null}
                 </button>
               ))}
             </nav>
@@ -104,7 +112,7 @@ export function AdminHomePage({ onOpenProductSheets, onOpenStyleGuide }: AdminHo
                 Pilotage Factory Writer
               </p>
               <h1 className="mt-2 font-serif text-4xl font-semibold tracking-[-0.045em] text-[var(--color-ink)] max-md:text-3xl">
-                Accueil admin
+                Accueil
               </h1>
             </div>
             <Button variant="secondary" onClick={onOpenStyleGuide}>

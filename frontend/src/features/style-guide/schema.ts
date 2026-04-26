@@ -28,6 +28,11 @@ const workflowStepSchema = z.object({
   eta: z.string().optional(),
 });
 
+const executionMetadataSchema = z.object({
+  documentAi: z.array(z.object({ label: z.string(), value: z.string() })),
+  llm: z.array(z.object({ label: z.string(), value: z.string() })),
+});
+
 const activePackSchema = z.object({
   id: z.string(),
   version: z.string(),
@@ -39,6 +44,7 @@ const activePackSchema = z.object({
   hardRulesCount: z.number(),
   softRulesCount: z.number(),
   scopes: z.array(z.string()),
+  metadata: executionMetadataSchema,
 });
 
 const recentPackSchema = z.object({
@@ -103,6 +109,7 @@ export const styleGuideOverviewSchema = z.object({
       currentActivity: z.string(),
       elapsedTime: z.string(),
       progress: z.number().min(0).max(100),
+      metadata: executionMetadataSchema,
       steps: z.array(workflowStepSchema),
     })
     .nullable(),

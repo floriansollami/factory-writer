@@ -151,7 +151,7 @@ export function RulesManagementPanel({
   }
 
   return (
-    <section id="style-rules-review" className="mt-6">
+    <section id="style-rules-review" className="mt-6 scroll-mt-6 focus:outline-none" tabIndex={-1}>
       <Card className="overflow-hidden p-0">
         <div className="border-b border-black/5 bg-[linear-gradient(145deg,rgba(255,253,248,0.96),rgba(238,242,234,0.9))] p-5">
           <div>

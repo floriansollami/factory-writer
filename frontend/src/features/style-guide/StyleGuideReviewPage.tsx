@@ -1,14 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowRight,
-  Flower2,
   Loader2,
   ShieldCheck,
 } from "lucide-react";
 import type { ReactNode } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
+import { AxolotlLogo } from "@/components/brand/AxolotlLogo";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardTitle } from "@/components/ui/card";
@@ -26,22 +26,24 @@ import {
 import { cn } from "@/lib/utils";
 
 const navItems = [
-  "Accueil admin",
-  "Guide de style",
+  "Accueil",
   "Fiches produit",
-  "Signaux marketing",
+  "Guide de style",
+  "Paramètres",
 ];
 
 type StyleGuideReviewPageProps = {
   onBack: () => void;
   onOpenAdminHome: () => void;
   onOpenProductSheets: () => void;
+  onOpenSettings: () => void;
 };
 
 export function StyleGuideReviewPage({
   onBack,
   onOpenAdminHome,
   onOpenProductSheets,
+  onOpenSettings,
 }: StyleGuideReviewPageProps) {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -63,6 +65,7 @@ export function StyleGuideReviewPage({
         onBack={onBack}
         onOpenAdminHome={onOpenAdminHome}
         onOpenProductSheets={onOpenProductSheets}
+        onOpenSettings={onOpenSettings}
       >
         <div className="grid min-h-[70vh] place-items-center text-[var(--color-forest)]">
           <Loader2 className="size-10 animate-spin" aria-label="Chargement" />
@@ -77,6 +80,7 @@ export function StyleGuideReviewPage({
         onBack={onBack}
         onOpenAdminHome={onOpenAdminHome}
         onOpenProductSheets={onOpenProductSheets}
+        onOpenSettings={onOpenSettings}
       >
         <Card className="max-w-lg">
           <CardTitle>Impossible de charger la revue des règles</CardTitle>
@@ -95,6 +99,7 @@ export function StyleGuideReviewPage({
         onBack={onBack}
         onOpenAdminHome={onOpenAdminHome}
         onOpenProductSheets={onOpenProductSheets}
+        onOpenSettings={onOpenSettings}
       >
         <div className="grid min-h-[70vh] place-items-center text-[var(--color-forest)]">
           <Loader2 className="size-10 animate-spin" aria-label="Redirection" />
@@ -108,6 +113,7 @@ export function StyleGuideReviewPage({
       onBack={onBack}
       onOpenAdminHome={onOpenAdminHome}
       onOpenProductSheets={onOpenProductSheets}
+      onOpenSettings={onOpenSettings}
     >
       <StyleGuideReviewWorkspace
         initialRules={data.rules}
@@ -122,11 +128,13 @@ function StyleGuideReviewShell({
   onBack,
   onOpenAdminHome,
   onOpenProductSheets,
+  onOpenSettings,
 }: {
   children: ReactNode;
   onBack: () => void;
   onOpenAdminHome: () => void;
   onOpenProductSheets: () => void;
+  onOpenSettings: () => void;
 }) {
   return (
     <main className="min-h-screen bg-[var(--color-ivory)] text-[var(--color-ink)]">
@@ -136,7 +144,7 @@ function StyleGuideReviewShell({
           <div className="relative">
             <div className="flex items-center gap-3">
               <div className="grid size-11 place-items-center rounded-2xl bg-white/12">
-                <Flower2 className="size-6" />
+                <AxolotlLogo className="size-7" />
               </div>
               <div>
                 <p className="font-serif text-xl font-semibold tracking-[-0.03em]">
@@ -163,16 +171,20 @@ function StyleGuideReviewShell({
                     onBack,
                     onOpenAdminHome,
                     onOpenProductSheets,
+                    onOpenSettings,
                   })}
                 >
                   {item}
-                  {item === "Accueil admin" ? (
+                  {item === "Accueil" ? (
                     <ArrowRight className="size-4" />
                   ) : null}
                   {item === "Fiches produit" ? (
                     <ArrowRight className="size-4" />
                   ) : null}
                   {item === "Guide de style" ? (
+                    <ArrowRight className="size-4" />
+                  ) : null}
+                  {item === "Paramètres" ? (
                     <ArrowRight className="size-4" />
                   ) : null}
                 </button>
@@ -199,10 +211,24 @@ function StyleGuideReviewWorkspace({
   const returnTo = sanitizeReturnTo(searchParams.get("returnTo"));
   const queryClient = useQueryClient();
   const [rules, setRules] = useState(initialRules);
+  const hasFocusedReview = useRef(false);
   const isRuntimePackActive = pack.status === "ACTIF";
   const isEditable = pack.status === "BROUILLON";
   const isApprovalOpen = searchParams.get("dialog") === "approve";
   const taxonomyOptions = pack.scopes.filter((scope) => scope !== "Global");
+
+  useEffect(() => {
+    if (hasFocusedReview.current) {
+      return;
+    }
+
+    hasFocusedReview.current = true;
+    window.requestAnimationFrame(() => {
+      const reviewSection = document.getElementById("style-rules-review");
+      reviewSection?.scrollIntoView({ behavior: "smooth", block: "start" });
+      reviewSection?.focus({ preventScroll: true });
+    });
+  }, []);
 
   useEffect(() => {
     setRules(initialRules);
@@ -476,13 +502,15 @@ function navigationHandlerForReviewItem({
   onBack,
   onOpenAdminHome,
   onOpenProductSheets,
+  onOpenSettings,
 }: {
   item: string;
   onBack: () => void;
   onOpenAdminHome: () => void;
   onOpenProductSheets: () => void;
+  onOpenSettings: () => void;
 }) {
-  if (item === "Accueil admin") {
+  if (item === "Accueil") {
     return onOpenAdminHome;
   }
 
@@ -492,6 +520,10 @@ function navigationHandlerForReviewItem({
 
   if (item === "Guide de style") {
     return onBack;
+  }
+
+  if (item === "Paramètres") {
+    return onOpenSettings;
   }
 
   return undefined;

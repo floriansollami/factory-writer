@@ -18,6 +18,7 @@ type SourcePdfPreviewProps = {
   className?: string;
   fileName: string;
   excerpt: string;
+  loadPdf?: (fileName: string) => Promise<Blob | null>;
   pageStart: number | null;
   pageEnd: number | null;
 };
@@ -26,6 +27,7 @@ export function SourcePdfPreview({
   className,
   fileName,
   excerpt,
+  loadPdf = loadStyleGuidePdf,
   pageStart,
   pageEnd,
 }: SourcePdfPreviewProps) {
@@ -54,7 +56,7 @@ export function SourcePdfPreview({
     setFileStatus("loading");
     setNumPages(null);
 
-    void loadStyleGuidePdf(fileName)
+    void loadPdf(fileName)
       .then((blob) => {
         if (!active) {
           return;
@@ -85,7 +87,7 @@ export function SourcePdfPreview({
         URL.revokeObjectURL(localUrl);
       }
     };
-  }, [fileName]);
+  }, [fileName, loadPdf]);
 
   useEffect(() => {
     if (containerRef.current === null) {
@@ -513,7 +515,7 @@ function MissingPdfState({ fileName }: { fileName: string }) {
           PDF indisponible dans ce navigateur
         </p>
         <p className="mt-3 text-sm leading-6 text-[var(--color-muted)]">
-          Le document “{fileName}” n’est plus présent localement. Réimportez le guide depuis cet appareil
+          Le document “{fileName}” n’est plus présent localement. Réimportez le PDF depuis cet appareil
           pour réactiver la consultation de la source.
         </p>
       </div>
