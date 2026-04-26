@@ -1,15 +1,16 @@
 import asyncio
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, cast
 
+import pytest
 from google.cloud import documentai_v1 as documentai
-from google.cloud.documentai_toolbox import document as toolbox_document
+from google.cloud.documentai_v1.types import geometry
 
+from factory_writer.application.ports.product_technical_ingestion import TechnicalExtractorRoute
 from factory_writer.core.config import GCPSettings, Settings
 from factory_writer.infrastructure.gcp.document_ai_client import (
     DocumentAIClient,
-    _toolbox_document_to_chunks,
+    _document_to_chunks,
 )
 
 
@@ -22,12 +23,15 @@ class _FakeDocumentProcessorClient:
     def __init__(self, response: _FakeProcessResponse) -> None:
         self.response = response
         self.requests: list[documentai.ProcessRequest] = []
+        self.timeouts: list[float | None] = []
 
     async def process_document(
         self,
         request: documentai.ProcessRequest,
+        timeout: float | None = None,
     ) -> _FakeProcessResponse:
         self.requests.append(request)
+        self.timeouts.append(timeout)
         return self.response
 
     def processor_version_path(
@@ -85,6 +89,7 @@ def test_online_layout_parse_uses_process_document_and_returns_chunks() -> None:
     assert request.gcs_document.gcs_uri == "gs://bucket/guide.pdf"
     assert request.gcs_document.mime_type == "application/pdf"
     assert request.skip_human_review is True
+    assert fake_client.timeouts == [120.0]
     assert request.process_options.layout_config.chunking_config.chunk_size == 1000
     assert request.process_options.layout_config.chunking_config.include_ancestor_headings is True
     assert result.processor_resource_name == request.name
@@ -94,71 +99,86 @@ def test_online_layout_parse_uses_process_document_and_returns_chunks() -> None:
     assert result.chunks[0].contenu == "VG-01 | hard Vouvoiement constant"
     assert result.chunks[0].page_start == 1
     assert result.chunks[0].page_end == 1
+    assert result.chunks[0].evidence_json == {"source": "chunk", "bounding_boxes": []}
 
 
-def test_chunks_from_wrapped_document_extract_chunk_id_text_and_page_span() -> None:
-    wrapped_document = toolbox_document.Document.from_document_path(
-        str(
-            Path(__file__)
-            .resolve()
-            .parents[3]
-            .joinpath(
-                "docs/brand_style_extraction/document_ai_raw_dump/AXOLOTL_STYLE_GUIDE_V4-0.json"
-            )
-        )
+def test_chunks_from_provider_document_extract_chunk_id_text_page_span_and_grounding() -> None:
+    document = documentai.Document.from_json(
+        Path(__file__)
+        .resolve()
+        .parents[3]
+        .joinpath("docs/brand_style_extraction/document_ai_raw_dump/AXOLOTL_STYLE_GUIDE_V4-0.json")
+        .read_text()
     )
 
-    chunks = _toolbox_document_to_chunks(wrapped_document)
+    chunks = _document_to_chunks(document)
 
     assert len(chunks) == 1
     assert chunks[0].provider_id == "c1"
     assert chunks[0].index_chunk == 1
     assert chunks[0].page_start == 1
     assert chunks[0].page_end == 1
-    assert chunks[0].evidence_json == {"source": "chunk"}
+    assert chunks[0].evidence_json["source"] == "chunk"
+    assert chunks[0].evidence_json["bounding_boxes"] != []
     assert "VG-01 | hard Vouvoiement constant" in chunks[0].contenu
 
 
-def test_chunks_from_wrapped_document_return_empty_list_when_provider_has_no_chunks() -> None:
-    class _FakeParagraph:
-        def __init__(self, text: str) -> None:
-            self.text = text
+def test_chunks_preserve_zero_coordinate_bounding_boxes() -> None:
+    chunk = documentai.Document.ChunkedDocument.Chunk(
+        chunk_id="c1",
+        content="Guide de style complet",
+        source_block_ids=["b1"],
+    )
+    chunk.page_span.page_start = 1
+    chunk.page_span.page_end = 1
 
-    class _FakePage:
-        def __init__(self, paragraphs: list[object]) -> None:
-            self.paragraphs = paragraphs
-
-    class _FakeWrappedDocument:
-        def __init__(self) -> None:
-            self.chunks: list[object] = []
-            self.pages = [
-                _FakePage([_FakeParagraph("Guide de style complet")]),
-                _FakePage([_FakeParagraph("sans chunk")]),
+    block = documentai.Document.DocumentLayout.DocumentLayoutBlock(
+        block_id="b1",
+        bounding_box=geometry.BoundingPoly(
+            normalized_vertices=[
+                geometry.NormalizedVertex(x=0.0, y=0.0),
+                geometry.NormalizedVertex(x=1.0, y=1.0),
             ]
-            self.text = "Texte complet"
+        ),
+    )
+    document = documentai.Document(
+        chunked_document=documentai.Document.ChunkedDocument(chunks=[chunk]),
+        document_layout=documentai.Document.DocumentLayout(blocks=[block]),
+    )
 
-    chunks = _toolbox_document_to_chunks(cast(Any, _FakeWrappedDocument()))
+    chunks = _document_to_chunks(document)
+
+    assert chunks[0].evidence_json["bounding_boxes"] == [
+        {
+            "normalizedVertices": [
+                {"x": 0.0, "y": 0.0},
+                {"x": 1.0, "y": 1.0},
+            ],
+            "vertices": [],
+        }
+    ]
+
+
+def test_chunks_return_empty_list_when_provider_has_no_chunks() -> None:
+    document = documentai.Document(text="Texte complet")
+
+    chunks = _document_to_chunks(document)
 
     assert chunks == []
 
 
 def test_chunks_generate_fallback_provider_id_if_chunk_id_is_missing() -> None:
-    class _FakePageSpan:
-        def __init__(self, page_start: int, page_end: int) -> None:
-            self.page_start = page_start
-            self.page_end = page_end
+    chunk = documentai.Document.ChunkedDocument.Chunk(
+        chunk_id="",
+        content="Guide de style complet",
+    )
+    chunk.page_span.page_start = 1
+    chunk.page_span.page_end = 1
+    document = documentai.Document(
+        chunked_document=documentai.Document.ChunkedDocument(chunks=[chunk])
+    )
 
-    class _FakeChunk:
-        def __init__(self) -> None:
-            self.chunk_id = ""
-            self.content = "Guide de style complet"
-            self.page_span = _FakePageSpan(1, 1)
-
-    class _FakeWrappedDocument:
-        def __init__(self) -> None:
-            self.chunks = [_FakeChunk()]
-
-    chunks = _toolbox_document_to_chunks(cast(Any, _FakeWrappedDocument()))
+    chunks = _document_to_chunks(document)
 
     assert len(chunks) == 1
     assert chunks[0].provider_id == "chunk-1"
@@ -166,3 +186,122 @@ def test_chunks_generate_fallback_provider_id_if_chunk_id_is_missing() -> None:
     assert chunks[0].contenu == "Guide de style complet"
     assert chunks[0].page_start == 1
     assert chunks[0].page_end == 1
+
+
+def test_classifier_uses_online_timeout() -> None:
+    entity = documentai.Document.Entity(type_="document_type", mention_text="notice_montage")
+    document = documentai.Document(entities=[entity])
+    fake_client = _FakeDocumentProcessorClient(_FakeProcessResponse(document=document))
+    client = DocumentAIClient(
+        Settings(
+            gcp=GCPSettings(
+                project_id="factory-writer-test",
+                document_ai_location="eu",
+                document_ai_classifier_processor_id="classifier",
+                document_ai_classifier_processor_version="classifier-v1",
+            )
+        )
+    )
+    client._document_client = fake_client  # type: ignore[assignment]
+
+    result = asyncio.run(client.classify_technical_document(input_uri="gs://bucket/notice.pdf"))
+
+    assert result.document_type == "ASSEMBLY_NOTICE"
+    assert fake_client.timeouts == [120.0]
+    request = fake_client.requests[0]
+    assert list(request.field_mask.paths) == ["entities", "pages.page_number"]
+
+
+def test_extractor_preserves_entity_field_path_without_changing_leaf_field_name() -> None:
+    child = documentai.Document.Entity(
+        type_="dimension_width_cm",
+        mention_text="220 cm",
+    )
+    parent = documentai.Document.Entity(
+        type_="plateau",
+        properties=[child],
+    )
+    document = documentai.Document(entities=[parent])
+    fake_client = _FakeDocumentProcessorClient(_FakeProcessResponse(document=document))
+    client = DocumentAIClient(
+        Settings(
+            gcp=GCPSettings(
+                project_id="factory-writer-test",
+                document_ai_location="eu",
+                document_ai_technical_sheet_extractor_processor_id="51d79fcf170d4db5",
+            )
+        )
+    )
+    client._document_client = fake_client  # type: ignore[assignment]
+
+    result = asyncio.run(
+        client.extract_technical_facts(
+            input_uri="gs://bucket/fiche.pdf",
+            document_type="TECHNICAL_SHEET",
+            extractor_route=TechnicalExtractorRoute(
+                document_type="TECHNICAL_SHEET",
+                processor_id="51d79fcf170d4db5",
+                processor_version=None,
+                extractor_name="fw-technical-sheet-extractor",
+            ),
+        )
+    )
+
+    width_entity = next(entity for entity in result.entities if entity.raw_value == "220 cm")
+    assert width_entity.field_name == "dimension_width_cm"
+    assert width_entity.raw_entity_json["fieldPath"] == "plateau.dimension_width_cm"
+    assert width_entity.raw_entity_json["fieldPathSegments"] == [
+        "plateau",
+        "dimension_width_cm",
+    ]
+    assert fake_client.requests[0].name == (
+        "projects/factory-writer-test/locations/eu/processors/51d79fcf170d4db5"
+    )
+    assert fake_client.timeouts == [120.0]
+
+
+@pytest.mark.parametrize(
+    ("document_type", "processor_id"),
+    [
+        ("TECHNICAL_SHEET", "51d79fcf170d4db5"),
+        ("MATERIAL_SPECIFICATION", "6a06ee761cf984a5"),
+        ("ASSEMBLY_NOTICE", "e4c1655a493f899e"),
+    ],
+)
+def test_extractor_uses_explicit_route(
+    document_type: str,
+    processor_id: str,
+) -> None:
+    document = documentai.Document()
+    fake_client = _FakeDocumentProcessorClient(_FakeProcessResponse(document=document))
+    client = DocumentAIClient(
+        Settings(
+            gcp=GCPSettings(
+                project_id="factory-writer-test",
+                document_ai_location="eu",
+                document_ai_technical_sheet_extractor_processor_id="51d79fcf170d4db5",
+                document_ai_material_specification_extractor_processor_id="6a06ee761cf984a5",
+                document_ai_assembly_notice_extractor_processor_id="e4c1655a493f899e",
+            )
+        )
+    )
+    client._document_client = fake_client  # type: ignore[assignment]
+
+    result = asyncio.run(
+        client.extract_technical_facts(
+            input_uri=f"gs://bucket/{document_type}.pdf",
+            document_type=document_type,
+            extractor_route=TechnicalExtractorRoute(
+                document_type=document_type,
+                processor_id=processor_id,
+                processor_version=None,
+                extractor_name=f"{document_type.lower()}-extractor",
+            ),
+        )
+    )
+
+    assert fake_client.requests[0].name == (
+        f"projects/factory-writer-test/locations/eu/processors/{processor_id}"
+    )
+    assert result.request_config_snapshot["extractor_document_type"] == document_type
+    assert result.request_config_snapshot["processor_kind"] == "custom_extractor_foundation_model"

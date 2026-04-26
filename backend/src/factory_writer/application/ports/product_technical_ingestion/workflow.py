@@ -63,6 +63,7 @@ class ClassifyTechnicalSourcesResult:
 @dataclass(frozen=True)
 class PersistClassificationResult:
     classification_count: int
+    review_case_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -114,6 +115,7 @@ class TechnicalReviewCasePayload:
 class PromotedTechnicalFactPayload:
     candidate_index: int
     field_name: str
+    occurrence_index: int
     value: str
     unit: str | None = None
 
@@ -123,6 +125,7 @@ class ValidateTechnicalFactsResult:
     candidates: tuple[TechnicalFactCandidatePayload, ...]
     review_cases: tuple[TechnicalReviewCasePayload, ...]
     promoted_facts: tuple[PromotedTechnicalFactPayload, ...]
+    generation_readiness: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -133,8 +136,8 @@ class PromoteTechnicalFactsResult:
 
 
 @dataclass(frozen=True)
-class CheckTechnicalReviewCompletionResult:
-    complete: bool
+class FinalizeTechnicalReviewResult:
+    promoted_fact_count: int
 
 
 @dataclass(frozen=True)
@@ -151,6 +154,7 @@ class ProductContextReadiness:
     commercial_matched_fields: dict[str, str | None] = field(default_factory=dict)
     technical_fact_ids: tuple[str, ...] = field(default_factory=tuple)
     technical_facts: tuple[dict[str, Any], ...] = field(default_factory=tuple)
+    generation_readiness: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -160,6 +164,12 @@ class CreateProductContextSnapshotResult:
 
 class ProductLifecycleWorkflowPort(Protocol):
     async def start_product_lifecycle(self, product: ProductContextReference) -> str: ...
+
+    async def start_technical_dossier_ingestion(
+        self,
+        product: ProductContextReference,
+        payload: TechnicalSourcesUploaded,
+    ) -> str: ...
 
     async def signal_technical_sources_uploaded(
         self,
@@ -172,6 +182,15 @@ class ProductLifecycleWorkflowPort(Protocol):
         *,
         ingestion_run_id: str,
         case_id: str,
+        open_review_case_count: int,
+        review_complete: bool,
+    ) -> None: ...
+
+    async def terminate_technical_dossier_ingestion(
+        self,
+        *,
+        ingestion_run_id: str,
+        reason: str,
     ) -> None: ...
 
     async def signal_style_pack_activated(self, *, sku: str, style_pack_id: str) -> None: ...

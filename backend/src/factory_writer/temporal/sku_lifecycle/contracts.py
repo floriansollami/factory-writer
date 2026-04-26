@@ -32,6 +32,8 @@ class TechnicalSourcesUploadedSignal(TemporalPayloadModel):
 class ReviewCaseResolvedSignal(TemporalPayloadModel):
     ingestion_run_id: str
     case_id: str
+    open_review_case_count: int
+    review_complete: bool
 
 
 class StylePackActivatedSignal(TemporalPayloadModel):

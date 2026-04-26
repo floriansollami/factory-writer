@@ -109,9 +109,7 @@ def _to_temporal_readiness(readiness: ProductContextReadiness) -> ProductContext
     return ProductContextReadinessResult(
         ready=readiness.ready,
         missing_prerequisites=readiness.missing_prerequisites,
-        waiting_status=(
-            WorkflowExecutionStatus(readiness.waiting_status) if readiness.waiting_status else None
-        ),
+        waiting_status=_to_temporal_workflow_status(readiness.waiting_status),
         style_pack_id=readiness.style_pack_id,
         style_pack_version_label=readiness.style_pack_version_label,
         commercial_signal_snapshot_id=readiness.commercial_signal_snapshot_id,
@@ -122,6 +120,18 @@ def _to_temporal_readiness(readiness: ProductContextReadiness) -> ProductContext
         technical_fact_ids=readiness.technical_fact_ids,
         technical_facts=readiness.technical_facts,
     )
+
+
+def _to_temporal_workflow_status(value: str | None) -> WorkflowExecutionStatus | None:
+    if value is None:
+        return None
+
+    try:
+        return WorkflowExecutionStatus(value)
+    except ValueError:
+        normalized = value.lower()
+
+    return WorkflowExecutionStatus(normalized)
 
 
 def _to_app_readiness(readiness: ProductContextReadinessResult) -> ProductContextReadiness:

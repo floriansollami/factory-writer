@@ -54,11 +54,15 @@ class DocumentSourceSnapshot:
     collection_id: uuid.UUID
     original_file_name: str
     storage_uri: str
+    storage_generation: str
+    storage_metageneration: str
     storage_content_type: str
     storage_size_bytes: int
     document_type: str
     classification_confidence: float | None
     statut: str
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -70,6 +74,10 @@ class IngestionRunSnapshot:
     current_step: str
     validation_summary_json: Any | None
     extraction_steps_json: Any | None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -79,6 +87,12 @@ class TechnicalIngestionStartPreparation:
     run: IngestionRunSnapshot
     sources: tuple[DocumentSourceSnapshot, ...]
     reused_existing_run: bool
+
+
+@dataclass(frozen=True)
+class TechnicalSourcesLotReplacementResult:
+    sources: tuple[DocumentSourceSnapshot, ...]
+    replaced_ingestion_run_id: uuid.UUID | None = None
 
 
 @dataclass(frozen=True)
@@ -96,6 +110,16 @@ class CommercialSignalSnapshotSelection:
 
 
 @dataclass(frozen=True)
+class GenerationReadinessProfileSnapshot:
+    id: uuid.UUID
+    profile_code: str
+    famille_code: str
+    sous_famille_code: str | None
+    channel_code: str
+    requirements_json: Any
+
+
+@dataclass(frozen=True)
 class StylePackRuntimeSnapshot:
     style_pack_id: str
     version_label: str
@@ -105,6 +129,7 @@ class StylePackRuntimeSnapshot:
 class TechnicalFactSnapshot:
     id: uuid.UUID
     field_name: str
+    occurrence_index: int
     value: str
     unit: str | None
 
@@ -157,6 +182,7 @@ class TechnicalReviewCaseInput:
 class PromotedTechnicalFactInput:
     candidate_index: int
     field_name: str
+    occurrence_index: int
     value: str
     unit: str | None
 
@@ -187,6 +213,13 @@ class ProductTechnicalRepositoryPort(Protocol):
         sources: list[UploadedTechnicalSourceData],
     ) -> tuple[DocumentSourceSnapshot, ...]: ...
 
+    async def replace_technical_sources_lot(
+        self,
+        *,
+        product_id: uuid.UUID,
+        sources: list[UploadedTechnicalSourceData],
+    ) -> TechnicalSourcesLotReplacementResult: ...
+
     async def prepare_technical_ingestion_start(
         self,
         *,
@@ -207,6 +240,13 @@ class ProductTechnicalRepositoryPort(Protocol):
         product: ProductSnapshot,
     ) -> CommercialSignalSnapshotSelection: ...
 
+    async def load_generation_readiness_profile(
+        self,
+        *,
+        product: ProductSnapshot,
+        channel_code: str = "product_sheet",
+    ) -> GenerationReadinessProfileSnapshot: ...
+
     async def load_active_style_pack(self) -> StylePackRuntimeSnapshot: ...
 
     async def update_ingestion_run_step(
@@ -215,6 +255,7 @@ class ProductTechnicalRepositoryPort(Protocol):
         run_id: uuid.UUID,
         current_step: CurrentStep,
         statut: StatutDocumentIngestionRun | None = None,
+        extraction_steps_json: Any | None = None,
     ) -> IngestionRunSnapshot: ...
 
     async def update_source_classification(
@@ -225,6 +266,14 @@ class ProductTechnicalRepositoryPort(Protocol):
         confidence: float | None,
         quality_metadata_json: Any | None,
     ) -> None: ...
+
+    async def create_classification_review_cases(
+        self,
+        *,
+        run_id: uuid.UUID,
+        review_cases: list[TechnicalReviewCaseInput],
+        extraction_steps_json: Any,
+    ) -> int: ...
 
     async def persist_technical_fact_candidates(
         self,
@@ -253,8 +302,6 @@ class ProductTechnicalRepositoryPort(Protocol):
         *,
         product_id: uuid.UUID,
     ) -> tuple[TechnicalFactSnapshot, ...]: ...
-
-    async def has_open_technical_review_cases(self, *, run_id: uuid.UUID) -> bool: ...
 
     async def create_product_context_snapshot(
         self,
@@ -289,6 +336,7 @@ class ProductTechnicalRepositoryPort(Protocol):
         resolved_by: str,
         corrected_value: str | None,
         corrected_unit: str | None,
+        selected_candidate_id: uuid.UUID | None,
         comment: str | None,
     ) -> dict[str, Any]: ...
 

@@ -3,10 +3,13 @@ from .document_processor import (
     TechnicalDocumentEntity,
     TechnicalDocumentExtractionResult,
     TechnicalDocumentProcessorPort,
+    TechnicalExtractorRoute,
+    TechnicalExtractorRouterPort,
 )
 from .repository import (
     CommercialSignalSnapshotSelection,
     DocumentSourceSnapshot,
+    GenerationReadinessProfileSnapshot,
     IngestionRunSnapshot,
     ProductContextSnapshotResult,
     ProductSnapshot,
@@ -18,6 +21,7 @@ from .repository import (
     TechnicalFactSnapshot,
     TechnicalIngestionStartPreparation,
     TechnicalReviewCaseInput,
+    TechnicalSourcesLotReplacementResult,
     UploadedTechnicalSourceData,
 )
 from .storage import TechnicalSourceStoragePort
@@ -27,10 +31,10 @@ from .workflow import (
     STATUS_WAITING_COMMERCIAL_SNAPSHOT,
     STATUS_WAITING_STYLE_PACK,
     STATUS_WAITING_TECH_FACTS,
-    CheckTechnicalReviewCompletionResult,
     ClassifyTechnicalSourcesResult,
     CreateProductContextSnapshotResult,
     ExtractTechnicalFactCandidatesResult,
+    FinalizeTechnicalReviewResult,
     LoadCanonicalProductResult,
     PersistClassificationResult,
     PersistTechnicalFactCandidatesResult,
@@ -49,12 +53,13 @@ from .workflow import (
 )
 
 __all__ = [
-    "CheckTechnicalReviewCompletionResult",
     "ClassifyTechnicalSourcesResult",
     "CommercialSignalSnapshotSelection",
     "CreateProductContextSnapshotResult",
     "DocumentSourceSnapshot",
     "ExtractTechnicalFactCandidatesResult",
+    "FinalizeTechnicalReviewResult",
+    "GenerationReadinessProfileSnapshot",
     "IngestionRunSnapshot",
     "LoadCanonicalProductResult",
     "PersistClassificationResult",
@@ -82,6 +87,8 @@ __all__ = [
     "TechnicalDocumentExtractionResult",
     "TechnicalDocumentProcessorPort",
     "TechnicalDocumentSourceReference",
+    "TechnicalExtractorRoute",
+    "TechnicalExtractorRouterPort",
     "TechnicalFactCandidateInput",
     "TechnicalFactCandidatePayload",
     "TechnicalFactSnapshot",
@@ -89,6 +96,7 @@ __all__ = [
     "TechnicalReviewCaseInput",
     "TechnicalReviewCasePayload",
     "TechnicalSourceStoragePort",
+    "TechnicalSourcesLotReplacementResult",
     "TechnicalSourcesUploaded",
     "UploadedTechnicalSourceData",
     "ValidateTechnicalFactsResult",

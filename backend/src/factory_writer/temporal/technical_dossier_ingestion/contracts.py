@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from pydantic import Field
+
 from factory_writer.temporal.common.contracts import TemporalPayloadModel, WorkflowExecutionStatus
 from factory_writer.temporal.sku_lifecycle.contracts import (
     ProductContextRef,
@@ -25,8 +27,8 @@ class TechnicalDossierIngestionState(TemporalPayloadModel):
     status: WorkflowExecutionStatus = WorkflowExecutionStatus.EXTRACTING_FACTS
     ingestion_run_id: str | None = None
     review_case_count: int = 0
+    open_review_case_count: int = 0
     promoted_fact_count: int = 0
-    review_event_count: int = 0
 
 
 class TechnicalDossierIngestionOutput(TemporalPayloadModel):
@@ -65,6 +67,13 @@ class ClassifyTechnicalSourcesResult(TemporalPayloadModel):
     classifications: tuple[TechnicalClassificationPayload, ...]
 
 
+class RefreshTechnicalClassificationsInput(TemporalPayloadModel):
+    product_id: str
+    ingestion_run_id: str
+    sources: tuple[TechnicalDocumentSourceRef, ...]
+    classifications: tuple[TechnicalClassificationPayload, ...]
+
+
 class PersistClassificationInput(TemporalPayloadModel):
     ingestion_run_id: str
     classifications: tuple[TechnicalClassificationPayload, ...]
@@ -72,6 +81,7 @@ class PersistClassificationInput(TemporalPayloadModel):
 
 class PersistClassificationResult(TemporalPayloadModel):
     classification_count: int
+    review_case_count: int = 0
 
 
 class TechnicalFactCandidatePayload(TemporalPayloadModel):
@@ -91,6 +101,7 @@ class TechnicalFactCandidatePayload(TemporalPayloadModel):
 
 
 class ExtractTechnicalFactCandidatesInput(TemporalPayloadModel):
+    ingestion_run_id: str
     sources: tuple[TechnicalDocumentSourceRef, ...]
     classifications: tuple[TechnicalClassificationPayload, ...]
 
@@ -130,18 +141,23 @@ class TechnicalReviewCasePayload(TemporalPayloadModel):
 class PromotedTechnicalFactPayload(TemporalPayloadModel):
     candidate_index: int
     field_name: str
+    occurrence_index: int = 0
     value: str
     unit: str | None = None
 
 
 class ValidateTechnicalFactsInput(TemporalPayloadModel):
+    product: ProductContextRef
     candidates: tuple[TechnicalFactCandidatePayload, ...]
+    document_types: tuple[str, ...] = ()
+    source_document_types: dict[str, str] = Field(default_factory=dict)
 
 
 class ValidateTechnicalFactsResult(TemporalPayloadModel):
     candidates: tuple[TechnicalFactCandidatePayload, ...]
     review_cases: tuple[TechnicalReviewCasePayload, ...]
     promoted_facts: tuple[PromotedTechnicalFactPayload, ...]
+    generation_readiness: dict[str, Any] = Field(default_factory=dict)
 
 
 class PromoteTechnicalFactsInput(TemporalPayloadModel):
@@ -151,6 +167,7 @@ class PromoteTechnicalFactsInput(TemporalPayloadModel):
     review_cases: tuple[TechnicalReviewCasePayload, ...]
     promoted_facts: tuple[PromotedTechnicalFactPayload, ...]
     extraction_steps_json: dict[str, Any]
+    generation_readiness: dict[str, Any] = Field(default_factory=dict)
 
 
 class PromoteTechnicalFactsResult(TemporalPayloadModel):
@@ -159,12 +176,13 @@ class PromoteTechnicalFactsResult(TemporalPayloadModel):
     promoted_fact_count: int
 
 
-class CheckTechnicalReviewCompletionInput(TemporalPayloadModel):
+class FinalizeTechnicalReviewInput(TemporalPayloadModel):
+    product: ProductContextRef
     ingestion_run_id: str
 
 
-class CheckTechnicalReviewCompletionResult(TemporalPayloadModel):
-    complete: bool
+class FinalizeTechnicalReviewResult(TemporalPayloadModel):
+    promoted_fact_count: int
 
 
 class MarkTechnicalIngestionFailedInput(TemporalPayloadModel):
@@ -173,12 +191,12 @@ class MarkTechnicalIngestionFailedInput(TemporalPayloadModel):
 
 
 __all__ = [
-    "CheckTechnicalReviewCompletionInput",
-    "CheckTechnicalReviewCompletionResult",
     "ClassifyTechnicalSourcesInput",
     "ClassifyTechnicalSourcesResult",
     "ExtractTechnicalFactCandidatesInput",
     "ExtractTechnicalFactCandidatesResult",
+    "FinalizeTechnicalReviewInput",
+    "FinalizeTechnicalReviewResult",
     "MarkTechnicalIngestionFailedInput",
     "PersistClassificationInput",
     "PersistClassificationResult",
@@ -188,6 +206,7 @@ __all__ = [
     "PrepareTechnicalIngestionResult",
     "PromoteTechnicalFactsInput",
     "PromoteTechnicalFactsResult",
+    "RefreshTechnicalClassificationsInput",
     "ReviewCaseResolvedSignal",
     "TechnicalDossierIngestionInput",
     "TechnicalDossierIngestionOutput",

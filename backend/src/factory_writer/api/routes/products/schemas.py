@@ -24,4 +24,5 @@ class TechnicalReviewCaseResolveRequest(BaseModel):
     resolved_by: str = Field(default="admin", alias="resolvedBy")
     corrected_value: str | None = Field(default=None, alias="correctedValue")
     corrected_unit: str | None = Field(default=None, alias="correctedUnit")
+    selected_candidate_id: str | None = Field(default=None, alias="selectedCandidateId")
     comment: str | None = None

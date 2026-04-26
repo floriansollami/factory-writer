@@ -10,12 +10,12 @@ from factory_writer.application.services.product_technical_ingestion_service imp
 from factory_writer.temporal.common.contracts import WorkflowExecutionStatus
 from factory_writer.temporal.sku_lifecycle.contracts import ProductContextRef
 from factory_writer.temporal.technical_dossier_ingestion.contracts import (
-    CheckTechnicalReviewCompletionInput,
-    CheckTechnicalReviewCompletionResult,
     ClassifyTechnicalSourcesInput,
     ClassifyTechnicalSourcesResult,
     ExtractTechnicalFactCandidatesInput,
     ExtractTechnicalFactCandidatesResult,
+    FinalizeTechnicalReviewInput,
+    FinalizeTechnicalReviewResult,
     MarkTechnicalIngestionFailedInput,
     PersistClassificationInput,
     PersistClassificationResult,
@@ -26,6 +26,7 @@ from factory_writer.temporal.technical_dossier_ingestion.contracts import (
     PromotedTechnicalFactPayload,
     PromoteTechnicalFactsInput,
     PromoteTechnicalFactsResult,
+    RefreshTechnicalClassificationsInput,
     TechnicalClassificationPayload,
     TechnicalDocumentSourceRef,
     TechnicalFactCandidatePayload,
@@ -58,6 +59,14 @@ class TechnicalDossierActivities:
             document_source_ids=payload.document_source_ids,
         )
 
+        logger.info(
+            "Technical dossier | run preparation completed",
+            product_id=payload.product_id,
+            ingestion_run_id=result.ingestion_run_id,
+            collection_id=result.collection_id,
+            source_count=len(result.sources),
+        )
+
         return PrepareTechnicalIngestionResult(
             product=_to_temporal_product_ref(result.product),
             ingestion_run_id=result.ingestion_run_id,
@@ -76,12 +85,19 @@ class TechnicalDossierActivities:
             tuple(_to_app_source_ref(source) for source in payload.sources)
         )
 
-        return ClassifyTechnicalSourcesResult(
-            classifications=tuple(
-                _to_temporal_classification(classification)
-                for classification in result.classifications
-            )
+        classifications = tuple(
+            _to_temporal_classification(classification) for classification in result.classifications
         )
+
+        logger.info(
+            "Technical dossier | classification completed",
+            classification_count=len(classifications),
+            document_types=tuple(
+                classification.document_type for classification in classifications
+            ),
+        )
+
+        return ClassifyTechnicalSourcesResult(classifications=classifications)
 
     @activity.defn
     async def persist_classification_results(
@@ -101,7 +117,54 @@ class TechnicalDossierActivities:
             ),
         )
 
-        return PersistClassificationResult(classification_count=result.classification_count)
+        logger.info(
+            "Technical dossier | classification persistence completed",
+            ingestion_run_id=payload.ingestion_run_id,
+            classification_count=result.classification_count,
+            review_case_count=result.review_case_count,
+        )
+
+        return PersistClassificationResult(
+            classification_count=result.classification_count,
+            review_case_count=result.review_case_count,
+        )
+
+    @activity.defn
+    async def refresh_technical_classifications(
+        self,
+        payload: RefreshTechnicalClassificationsInput,
+    ) -> ClassifyTechnicalSourcesResult:
+        logger.info(
+            "Technical dossier | classification refresh",
+            product_id=payload.product_id,
+            ingestion_run_id=payload.ingestion_run_id,
+            source_count=len(payload.sources),
+        )
+
+        result = await self._service.refresh_technical_classifications(
+            product_id=payload.product_id,
+            ingestion_run_id=payload.ingestion_run_id,
+            sources=tuple(_to_app_source_ref(source) for source in payload.sources),
+            classifications=tuple(
+                _to_app_classification(classification) for classification in payload.classifications
+            ),
+        )
+
+        classifications = tuple(
+            _to_temporal_classification(classification) for classification in result.classifications
+        )
+
+        logger.info(
+            "Technical dossier | classification refresh completed",
+            product_id=payload.product_id,
+            ingestion_run_id=payload.ingestion_run_id,
+            classification_count=len(classifications),
+            document_types=tuple(
+                classification.document_type for classification in classifications
+            ),
+        )
+
+        return ClassifyTechnicalSourcesResult(classifications=classifications)
 
     @activity.defn
     async def extract_technical_fact_candidates(
@@ -109,14 +172,26 @@ class TechnicalDossierActivities:
         payload: ExtractTechnicalFactCandidatesInput,
     ) -> ExtractTechnicalFactCandidatesResult:
         logger.info("Technical dossier | extraction started", source_count=len(payload.sources))
+
         result = await self._service.extract_technical_fact_candidates(
+            ingestion_run_id=payload.ingestion_run_id,
             sources=tuple(_to_app_source_ref(source) for source in payload.sources),
             classifications=tuple(
                 _to_app_classification(classification) for classification in payload.classifications
             ),
         )
+
+        candidates = tuple(_to_temporal_candidate(candidate) for candidate in result.candidates)
+
+        logger.info(
+            "Technical dossier | extraction completed",
+            source_count=len(payload.sources),
+            candidate_count=len(candidates),
+            total_elapsed_seconds=result.extraction_steps_json.get("total_elapsed_seconds"),
+        )
+
         return ExtractTechnicalFactCandidatesResult(
-            candidates=tuple(_to_temporal_candidate(candidate) for candidate in result.candidates),
+            candidates=candidates,
             extraction_steps_json=result.extraction_steps_json,
         )
 
@@ -136,6 +211,11 @@ class TechnicalDossierActivities:
             candidates=tuple(_to_app_candidate(candidate) for candidate in payload.candidates),
             extraction_steps_json=payload.extraction_steps_json,
         )
+        logger.info(
+            "Technical dossier | candidate persistence completed",
+            ingestion_run_id=payload.ingestion_run_id,
+            candidate_count=result.candidate_count,
+        )
         return PersistTechnicalFactCandidatesResult(candidate_count=result.candidate_count)
 
     @activity.defn
@@ -144,10 +224,21 @@ class TechnicalDossierActivities:
         payload: ValidateTechnicalFactsInput,
     ) -> ValidateTechnicalFactsResult:
         logger.info(
-            "Technical dossier | deterministic validation", candidate_count=len(payload.candidates)
+            "Technical dossier | deterministic validation",
+            candidate_count=len(payload.candidates),
+            document_types=payload.document_types,
         )
         result = await self._service.validate_technical_facts(
-            tuple(_to_app_candidate(candidate) for candidate in payload.candidates)
+            product=_to_app_product_ref(payload.product),
+            candidates=tuple(_to_app_candidate(candidate) for candidate in payload.candidates),
+            document_types=payload.document_types,
+            source_document_types=payload.source_document_types,
+        )
+        logger.info(
+            "Technical dossier | deterministic validation completed",
+            candidate_count=len(result.candidates),
+            review_case_count=len(result.review_cases),
+            promoted_fact_count=len(result.promoted_facts),
         )
         return ValidateTechnicalFactsResult(
             candidates=tuple(_to_temporal_candidate(candidate) for candidate in result.candidates),
@@ -155,6 +246,7 @@ class TechnicalDossierActivities:
             promoted_facts=tuple(
                 _to_temporal_promoted_fact(promoted_fact) for promoted_fact in result.promoted_facts
             ),
+            generation_readiness=result.generation_readiness,
         )
 
     @activity.defn
@@ -177,26 +269,52 @@ class TechnicalDossierActivities:
                 _to_app_promoted_fact(promoted_fact) for promoted_fact in payload.promoted_facts
             ),
             extraction_steps_json=payload.extraction_steps_json,
+            generation_readiness=payload.generation_readiness,
+        )
+        logger.info(
+            "Technical dossier | fact promotion completed",
+            ingestion_run_id=payload.ingestion_run_id,
+            status=result.status,
+            review_case_count=result.review_case_count,
+            promoted_fact_count=result.promoted_fact_count,
         )
         return PromoteTechnicalFactsResult(
-            status=WorkflowExecutionStatus(result.status),
+            status=_to_temporal_workflow_status(result.status),
             review_case_count=result.review_case_count,
             promoted_fact_count=result.promoted_fact_count,
         )
 
     @activity.defn
-    async def check_technical_review_completion(
+    async def finalize_technical_review(
         self,
-        payload: CheckTechnicalReviewCompletionInput,
-    ) -> CheckTechnicalReviewCompletionResult:
-        result = await self._service.check_technical_review_completion(payload.ingestion_run_id)
-        return CheckTechnicalReviewCompletionResult(complete=result.complete)
+        payload: FinalizeTechnicalReviewInput,
+    ) -> FinalizeTechnicalReviewResult:
+        logger.info(
+            "Technical dossier | review finalization",
+            ingestion_run_id=payload.ingestion_run_id,
+        )
+        result = await self._service.finalize_technical_review(
+            product=_to_app_product_ref(payload.product),
+            ingestion_run_id=payload.ingestion_run_id,
+        )
+        logger.info(
+            "Technical dossier | review finalization completed",
+            ingestion_run_id=payload.ingestion_run_id,
+            promoted_fact_count=result.promoted_fact_count,
+        )
+        return FinalizeTechnicalReviewResult(promoted_fact_count=result.promoted_fact_count)
 
     @activity.defn
     async def mark_technical_ingestion_failed(
         self,
         payload: MarkTechnicalIngestionFailedInput,
     ) -> None:
+        logger.error(
+            "Technical dossier | ingestion failed",
+            product_id=payload.product.product_id,
+            sku=payload.product.sku,
+            error_message=payload.error_message,
+        )
         await self._service.mark_technical_ingestion_failed(
             product=_to_app_product_ref(payload.product),
             error_message=payload.error_message,
@@ -357,6 +475,7 @@ def _to_app_promoted_fact(
     return app_contracts.PromotedTechnicalFactPayload(
         candidate_index=promoted_fact.candidate_index,
         field_name=promoted_fact.field_name,
+        occurrence_index=promoted_fact.occurrence_index,
         value=promoted_fact.value,
         unit=promoted_fact.unit,
     )
@@ -368,6 +487,15 @@ def _to_temporal_promoted_fact(
     return PromotedTechnicalFactPayload(
         candidate_index=promoted_fact.candidate_index,
         field_name=promoted_fact.field_name,
+        occurrence_index=promoted_fact.occurrence_index,
         value=promoted_fact.value,
         unit=promoted_fact.unit,
     )
+
+
+def _to_temporal_workflow_status(status: str) -> WorkflowExecutionStatus:
+    if status == app_contracts.STATUS_PENDING_TECH_REVIEW:
+        return WorkflowExecutionStatus.PENDING_TECH_REVIEW
+    if status == app_contracts.STATUS_TECHNICAL_FACTS_READY:
+        return WorkflowExecutionStatus.TECHNICAL_FACTS_READY
+    return WorkflowExecutionStatus(status)

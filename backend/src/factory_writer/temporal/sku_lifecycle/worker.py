@@ -69,7 +69,7 @@ async def main() -> None:
             technical_activities.persist_technical_fact_candidates,
             technical_activities.validate_technical_facts,
             technical_activities.promote_technical_facts,
-            technical_activities.check_technical_review_completion,
+            technical_activities.finalize_technical_review,
             technical_activities.mark_technical_ingestion_failed,
         ],
         build_id=settings.temporal.build_id,

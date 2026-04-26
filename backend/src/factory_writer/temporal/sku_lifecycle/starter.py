@@ -3,6 +3,7 @@ from __future__ import annotations
 import structlog
 from temporalio.client import Client
 from temporalio.common import WorkflowIDConflictPolicy
+from temporalio.service import RPCError, RPCStatusCode
 
 from factory_writer.application.ports.product_technical_ingestion import (
     ProductContextReference,
@@ -22,6 +23,9 @@ from factory_writer.temporal.sku_lifecycle.contracts import (
     TechnicalSourcesUploadedSignal as TemporalTechnicalSourcesUploadedSignal,
 )
 from factory_writer.temporal.sku_lifecycle.workflow import ProductLifecycleWorkflow
+from factory_writer.temporal.technical_dossier_ingestion.contracts import (
+    TechnicalDossierIngestionInput,
+)
 from factory_writer.temporal.technical_dossier_ingestion.workflow import (
     TechnicalDossierIngestionWorkflow,
 )
@@ -75,6 +79,57 @@ class TemporalProductLifecycleWorkflowStarter:
                 f"Impossible de démarrer le workflow Temporal Product Lifecycle: {str(exc)}"
             ) from exc
 
+    async def start_technical_dossier_ingestion(
+        self,
+        product: ProductContextReference,
+        payload: TechnicalSourcesUploaded,
+    ) -> str:
+        workflow_id = _technical_dossier_workflow_id(payload.ingestion_run_id)
+        try:
+            logger.info(
+                "Technical dossier | Temporal | démarrage workflow direct",
+                product_id=product.product_id,
+                sku=product.sku,
+                workflow_id=workflow_id,
+                ingestion_run_id=payload.ingestion_run_id,
+                document_source_ids=payload.document_source_ids,
+                task_queue=TaskQueue.PRODUCT_LIFECYCLE.value,
+            )
+
+            await self._client.start_workflow(
+                TechnicalDossierIngestionWorkflow.run,
+                TechnicalDossierIngestionInput(
+                    product=_to_temporal_product_ref(product),
+                    sources_signal=_to_temporal_sources_uploaded_signal(payload),
+                ),
+                id=workflow_id,
+                task_queue=TaskQueue.PRODUCT_LIFECYCLE.value,
+                id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
+                static_summary="Factory Writer technical dossier ingestion",
+                static_details=f"Technical dossier ingestion for SKU {product.sku}",
+            )
+
+            logger.info(
+                "Technical dossier | Temporal | workflow direct démarré ou réutilisé",
+                product_id=product.product_id,
+                sku=product.sku,
+                workflow_id=workflow_id,
+                ingestion_run_id=payload.ingestion_run_id,
+            )
+
+            return workflow_id
+        except Exception as exc:
+            logger.exception(
+                "Technical dossier | Temporal | échec démarrage workflow direct",
+                product_id=product.product_id,
+                sku=product.sku,
+                workflow_id=workflow_id,
+                ingestion_run_id=payload.ingestion_run_id,
+            )
+            raise RuntimeError(
+                f"Impossible de démarrer le workflow Temporal Technical Dossier: {str(exc)}"
+            ) from exc
+
     async def signal_technical_sources_uploaded(
         self,
         sku: str,
@@ -118,6 +173,8 @@ class TemporalProductLifecycleWorkflowStarter:
         *,
         ingestion_run_id: str,
         case_id: str,
+        open_review_case_count: int,
+        review_complete: bool,
     ) -> None:
         try:
             handle = self._client.get_workflow_handle(
@@ -128,12 +185,44 @@ class TemporalProductLifecycleWorkflowStarter:
                 ReviewCaseResolvedSignal(
                     ingestion_run_id=ingestion_run_id,
                     case_id=case_id,
+                    open_review_case_count=open_review_case_count,
+                    review_complete=review_complete,
                 ),
             )
         except Exception as exc:
             raise RuntimeError(
                 f"Impossible d'envoyer le signal au workflow technique: {str(exc)}"
             ) from exc
+
+    async def terminate_technical_dossier_ingestion(
+        self,
+        *,
+        ingestion_run_id: str,
+        reason: str,
+    ) -> None:
+        workflow_id = _technical_dossier_workflow_id(ingestion_run_id)
+        try:
+            handle = self._client.get_workflow_handle(workflow_id)
+            await handle.terminate(reason=reason)
+            logger.info(
+                "Technical dossier | Temporal | workflow terminé",
+                workflow_id=workflow_id,
+                ingestion_run_id=ingestion_run_id,
+                reason=reason,
+            )
+        except RPCError as exc:
+            if exc.status in {RPCStatusCode.NOT_FOUND, RPCStatusCode.FAILED_PRECONDITION}:
+                logger.info(
+                    "Technical dossier | Temporal | workflow déjà absent ou fermé",
+                    workflow_id=workflow_id,
+                    ingestion_run_id=ingestion_run_id,
+                    reason=reason,
+                    rpc_status=exc.status.name,
+                )
+                return
+            raise RuntimeError(f"Impossible de terminer le workflow technique: {str(exc)}") from exc
+        except Exception as exc:
+            raise RuntimeError(f"Impossible de terminer le workflow technique: {str(exc)}") from exc
 
     async def signal_style_pack_activated(self, *, sku: str, style_pack_id: str) -> None:
         try:

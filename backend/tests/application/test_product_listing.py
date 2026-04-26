@@ -90,6 +90,42 @@ async def test_list_products_marks_missing_generation_prerequisites() -> None:
 
 
 @pytest.mark.anyio
+async def test_list_products_marks_uploaded_sources_as_ready_to_analyze() -> None:
+    product_id = uuid.UUID("7e8d7c1d-9f3a-4a89-9f1b-4f9f5b8d2a11")
+    product = ProductSnapshot(
+        id=product_id,
+        sku="AX-TB-RIV-220-TKGR",
+        name="Table Rivage 220",
+        famille_code="mobilier_jardin",
+        sous_famille_code="table_repas_exterieur",
+        season_code="printemps_ete",
+        segment_prix_code="premium",
+        langue_principale="fr-FR",
+    )
+    service = ProductTechnicalIngestionService(
+        settings=Settings(),
+        repository=cast(
+            Any,
+            _FakeProductRepository(
+                products=(product,),
+                product_overviews={
+                    product_id: {
+                        "sources": [{"id": "source-1"}],
+                        "run": None,
+                        "review_cases": [],
+                        "product_context_snapshot": None,
+                    }
+                },
+            ),
+        ),
+    )
+
+    result = await service.list_products()
+
+    assert result["products"][0]["readinessStatus"] == "TECHNICAL_SOURCES_UPLOADED"
+
+
+@pytest.mark.anyio
 async def test_create_product_returns_product_and_starts_lifecycle_workflow() -> None:
     product_id = uuid.UUID("7e8d7c1d-9f3a-4a89-9f1b-4f9f5b8d2a11")
     repository = _FakeProductRepository(created_product_id=product_id)
@@ -185,15 +221,28 @@ class _FakeProductRepository:
         created_product_id: uuid.UUID | None = None,
         style_guide_ready: bool = True,
         commercial_signals_ready: bool = True,
+        product_overviews: dict[uuid.UUID, dict[str, Any]] | None = None,
     ) -> None:
         self._products = products
         self._taxonomies = taxonomies
         self._created_product_id = created_product_id
         self._style_guide_ready = style_guide_ready
         self._commercial_signals_ready = commercial_signals_ready
+        self._product_overviews = product_overviews or {}
 
     async def list_products(self, *, limit: int = 50) -> tuple[ProductSnapshot, ...]:
         return self._products[:limit]
+
+    async def get_product_overview(self, product_id: uuid.UUID) -> dict[str, Any]:
+        return self._product_overviews.get(
+            product_id,
+            {
+                "sources": [],
+                "run": None,
+                "review_cases": [],
+                "product_context_snapshot": None,
+            },
+        )
 
     async def load_active_style_pack(self) -> object:
         if not self._style_guide_ready:

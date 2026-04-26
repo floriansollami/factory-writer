@@ -113,6 +113,31 @@ async def start_technical_sources_ingestion(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
+@router.post("/{product_id}/technical-sources/replace-lot")
+async def replace_technical_sources_lot(
+    product_id: uuid.UUID,
+    files: list[UploadFile] = File(...),
+    service: ProductTechnicalIngestionService = Depends(get_product_workflow_service),
+) -> dict[str, Any]:
+    try:
+        payload_files: list[tuple[str, bytes, str]] = []
+        for file in files:
+            content = await file.read()
+            payload_files.append(
+                (
+                    file.filename or "technical-document.pdf",
+                    content,
+                    file.content_type or "application/pdf",
+                )
+            )
+        return await service.replace_technical_sources_lot(
+            product_id=product_id,
+            files=payload_files,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
 @router.patch("/{product_id}/technical-review-cases/{case_id}")
 async def resolve_technical_review_case(
     product_id: uuid.UUID,
@@ -128,6 +153,11 @@ async def resolve_technical_review_case(
             resolved_by=payload.resolved_by,
             corrected_value=payload.corrected_value,
             corrected_unit=payload.corrected_unit,
+            selected_candidate_id=(
+                uuid.UUID(payload.selected_candidate_id)
+                if payload.selected_candidate_id is not None
+                else None
+            ),
             comment=payload.comment,
         )
     except RuntimeError as exc:

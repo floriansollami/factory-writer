@@ -16,6 +16,12 @@ class GCPSettings(BaseModel):
     document_ai_ocr_processor_version: str | None = None
     document_ai_extractor_processor_id: str = ""
     document_ai_extractor_processor_version: str | None = None
+    document_ai_technical_sheet_extractor_processor_id: str = ""
+    document_ai_technical_sheet_extractor_processor_version: str | None = None
+    document_ai_material_specification_extractor_processor_id: str = ""
+    document_ai_material_specification_extractor_processor_version: str | None = None
+    document_ai_assembly_notice_extractor_processor_id: str = ""
+    document_ai_assembly_notice_extractor_processor_version: str | None = None
     style_guide_bucket_name: str = ""
     technical_dossier_bucket_name: str = ""
     storage_emulator_host: str = ""
@@ -41,8 +47,8 @@ class LLMSettings(BaseModel):
 
 
 class TechnicalDossierSettings(BaseModel):
-    sla_budget_seconds: float = 60.0
     low_confidence_threshold: float = 0.75
+    classification_confidence_threshold: float = 0.90
     max_pdf_bytes: int = 25 * 1024 * 1024
 
 

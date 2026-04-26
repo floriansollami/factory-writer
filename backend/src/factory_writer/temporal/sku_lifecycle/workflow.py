@@ -95,12 +95,16 @@ class ProductLifecycleWorkflow:
         self.state.product_loaded = True
 
         self.state.status = WorkflowExecutionStatus.WAITING_TECHNICAL_SOURCES
+
         workflow.logger.info(
             "Product lifecycle | en attente des PDFs techniques | "
             f"product_id={canonical_product.product_id} sku={canonical_product.sku}"
         )
+
         await workflow.wait_condition(lambda: self.sources_signal is not None)
+
         sources_signal = self.sources_signal
+
         if sources_signal is None:
             raise RuntimeError("Aucun signal de sources techniques reçu.")
 

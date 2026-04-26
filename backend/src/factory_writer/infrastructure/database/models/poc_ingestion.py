@@ -83,6 +83,21 @@ class CommercialSignalSnapshot(BaseModel):
     )
 
 
+class GenerationReadinessProfile(BaseModel):
+    __tablename__ = "generation_readiness_profile"
+    __table_args__ = (
+        UniqueConstraint("profile_code", name="uq_generation_readiness_profile_code"),
+        {"comment": "Profil POC des facts requis avant generation fiche produit."},
+    )
+
+    profile_code: Mapped[str] = mapped_column(String, index=True)
+    famille_code: Mapped[str] = mapped_column(String, index=True)
+    sous_famille_code: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    channel_code: Mapped[str] = mapped_column(String, index=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    requirements_json: Mapped[Any] = mapped_column(JSON)
+
+
 class DocumentCollection(BaseModel):
     __tablename__ = "document_collection"
     __table_args__ = (
@@ -329,7 +344,12 @@ class TechnicalReviewCase(BaseModel):
 class TechnicalFact(BaseModel):
     __tablename__ = "technical_fact"
     __table_args__ = (
-        UniqueConstraint("product_id", "field_name", name="uq_technical_fact_product_field_name"),
+        UniqueConstraint(
+            "product_id",
+            "field_name",
+            "occurrence_index",
+            name="uq_technical_fact_product_field_occurrence",
+        ),
         UniqueConstraint("source_candidate_id", name="uq_technical_fact_source_candidate_id"),
         {"comment": "Fact technique valide et publiable pour le runtime produit."},
     )
@@ -339,6 +359,7 @@ class TechnicalFact(BaseModel):
         ForeignKey("technical_fact_candidate.id", ondelete="SET NULL"), nullable=True, index=True
     )
     field_name: Mapped[str] = mapped_column(String)
+    occurrence_index: Mapped[int] = mapped_column(default=0)
     value: Mapped[str] = mapped_column(Text)
     unit: Mapped[str | None] = mapped_column(String, nullable=True)
     validation_source: Mapped[TechnicalFactValidationSource] = mapped_column()
