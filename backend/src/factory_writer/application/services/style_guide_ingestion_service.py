@@ -522,6 +522,21 @@ class StyleGuideIngestionService:
                     ),
                 }
             )
+            llm_response_format = _response_format_name(
+                dict(prepared_prompt.llm_config.response_format)
+            )
+
+            await self._repository.record_llm_draft_pack_metadata(
+                run_id=payload.ingestion_run_id,
+                prompt_registry_provider=prompt.registry_provider,
+                prompt_name=prompt.name,
+                prompt_version=prompt.version,
+                llm_model=prepared_prompt.llm_config.model,
+                llm_temperature=prepared_prompt.llm_config.temperature,
+                llm_max_tokens=prepared_prompt.llm_config.max_tokens,
+                llm_response_format=llm_response_format,
+                status="RUNNING",
+            )
 
             logger.info(
                 "Style guide | Draft pack | appel LLM démarré",
@@ -648,6 +663,18 @@ def _validate_draft_pack_candidate(
 
 def _chunk_provider_ids_preview(chunks: list[StyleGuideChunkCandidate]) -> list[str]:
     return [chunk.provider_id for chunk in chunks[:5]]
+
+
+def _response_format_name(response_format: dict[str, object]) -> str:
+    json_schema = response_format.get("json_schema")
+    if not isinstance(json_schema, dict):
+        return str(response_format.get("type") or "unknown")
+
+    name = json_schema.get("name")
+    if not isinstance(name, str) or not name.strip():
+        return str(response_format.get("type") or "unknown")
+
+    return name
 
 
 def _normalize_and_validate_rule(

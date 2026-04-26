@@ -1,5 +1,7 @@
 from factory_writer.application.services.style_guide_admin_service import (
     StyleGuideOverviewActivePack,
+    StyleGuideOverviewExecutionMetadata,
+    StyleGuideOverviewMetadataField,
     StyleGuideOverviewPendingDocumentSource,
     StyleGuideOverviewRecentPack,
     StyleGuideOverviewResult,
@@ -67,6 +69,7 @@ def _to_active_pack_response(pack: StyleGuideOverviewActivePack) -> dict[str, ob
         "hardRulesCount": pack.hard_rules_count,
         "softRulesCount": pack.soft_rules_count,
         "scopes": pack.scopes,
+        "metadata": _to_execution_metadata_response(pack.metadata),
     }
 
 
@@ -94,6 +97,7 @@ def _to_current_workflow_response(workflow_result: StyleGuideOverviewWorkflow) -
         "currentActivity": workflow_result.current_activity,
         "elapsedTime": workflow_result.elapsed_time,
         "progress": workflow_result.progress,
+        "metadata": _to_execution_metadata_response(workflow_result.metadata),
         "steps": [
             {
                 "id": step.id,
@@ -104,6 +108,22 @@ def _to_current_workflow_response(workflow_result: StyleGuideOverviewWorkflow) -
             }
             for step in workflow_result.steps
         ],
+    }
+
+
+def _to_execution_metadata_response(
+    metadata: StyleGuideOverviewExecutionMetadata,
+) -> dict[str, list[dict[str, str]]]:
+    return {
+        "documentAi": [_to_metadata_field_response(field) for field in metadata.document_ai],
+        "llm": [_to_metadata_field_response(field) for field in metadata.llm],
+    }
+
+
+def _to_metadata_field_response(field: StyleGuideOverviewMetadataField) -> dict[str, str]:
+    return {
+        "label": field.label,
+        "value": field.value,
     }
 
 

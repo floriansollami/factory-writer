@@ -3,6 +3,8 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import PurePosixPath
+from typing import Any
 
 from factory_writer.application.ports.style_guide_ingestion import (
     StyleGuideDocumentSourceSnapshot,
@@ -21,6 +23,18 @@ from factory_writer.domain.document_ingestion_types import (
 from factory_writer.domain.style_guide_types import NiveauContrainte, StatutSource, TypeRegle
 
 _REVIEWER_NAME = "Sophie"
+
+
+@dataclass(frozen=True)
+class StyleGuideOverviewMetadataField:
+    label: str
+    value: str
+
+
+@dataclass(frozen=True)
+class StyleGuideOverviewExecutionMetadata:
+    document_ai: list[StyleGuideOverviewMetadataField]
+    llm: list[StyleGuideOverviewMetadataField]
 
 
 @dataclass(frozen=True)
@@ -54,6 +68,7 @@ class StyleGuideOverviewWorkflow:
     elapsed_time: str
     progress: int
     steps: list[StyleGuideOverviewWorkflowStep]
+    metadata: StyleGuideOverviewExecutionMetadata
 
 
 @dataclass(frozen=True)
@@ -68,6 +83,7 @@ class StyleGuideOverviewActivePack:
     hard_rules_count: int
     soft_rules_count: int
     scopes: list[str]
+    metadata: StyleGuideOverviewExecutionMetadata
 
 
 @dataclass(frozen=True)
@@ -338,6 +354,10 @@ def _build_current_workflow(
         elapsed_time=_format_elapsed_time(elapsed_seconds),
         progress=progress,
         steps=steps,
+        metadata=_build_execution_metadata(
+            extraction_steps_json=latest_run.extraction_steps_json,
+            pack=None,
+        ),
     )
 
 
@@ -373,7 +393,7 @@ def _build_workflow_progress(
                 label="Extraction du contenu",
                 description="Le contenu du PDF est analysé et structuré pour préparer les règles.",
                 status="completed" if document_ai_done else "running",
-                eta=None if document_ai_done else "souvent 1 à 3 min",
+                eta=None if document_ai_done else "souvent 1 min",
             ),
             StyleGuideOverviewWorkflowStep(
                 id="draft-pack",
@@ -382,7 +402,7 @@ def _build_workflow_progress(
                 status="running"
                 if draft_pack_running
                 else ("completed" if current_step == CurrentStep.HUMAN_REVIEW else "pending"),
-                eta=None if current_step == CurrentStep.HUMAN_REVIEW else "souvent 1 à 3 min",
+                eta=None if current_step == CurrentStep.HUMAN_REVIEW else "souvent 15 secondes",
             ),
             StyleGuideOverviewWorkflowStep(
                 id="editorial-review",
@@ -392,6 +412,133 @@ def _build_workflow_progress(
             ),
         ],
     )
+
+
+def _build_execution_metadata(
+    *,
+    extraction_steps_json: Any | None,
+    pack: StyleGuidePackSnapshot | None,
+) -> StyleGuideOverviewExecutionMetadata:
+    steps = _normalize_extraction_steps(extraction_steps_json)
+    document_ai_step = next(
+        (step for step in steps if step.get("step_kind") in {"LAYOUT_PARSE", "OCR_PROOF"}),
+        None,
+    )
+    llm_step = next(
+        (step for step in steps if step.get("step_kind") == "LLM_DRAFT_PACK"),
+        None,
+    )
+
+    return StyleGuideOverviewExecutionMetadata(
+        document_ai=_build_document_ai_metadata(document_ai_step),
+        llm=_build_llm_metadata(llm_step, pack),
+    )
+
+
+def _normalize_extraction_steps(extraction_steps_json: Any | None) -> list[dict[str, Any]]:
+    if isinstance(extraction_steps_json, list):
+        return [step for step in extraction_steps_json if isinstance(step, dict)]
+
+    if isinstance(extraction_steps_json, dict):
+        steps = extraction_steps_json.get("steps")
+        if isinstance(steps, list):
+            return [step for step in steps if isinstance(step, dict)]
+
+    return []
+
+
+def _build_document_ai_metadata(
+    step: dict[str, Any] | None,
+) -> list[StyleGuideOverviewMetadataField]:
+    if step is None:
+        return []
+
+    processor_resource_name = _optional_string(step.get("processor_resource_name"))
+
+    return _compact_metadata_fields(
+        [
+            ("Fournisseur", "Google Document AI"),
+            (
+                "Processor",
+                _processor_id_from_resource_name(processor_resource_name)
+                or _optional_string(step.get("processor_kind")),
+            ),
+            ("Version", _document_ai_processor_version_label(step.get("processor_version"))),
+        ]
+    )
+
+
+def _build_llm_metadata(
+    step: dict[str, Any] | None,
+    pack: StyleGuidePackSnapshot | None,
+) -> list[StyleGuideOverviewMetadataField]:
+    if step is None and pack is None:
+        return []
+
+    return _compact_metadata_fields(
+        [
+            ("Fournisseur", "LiteLLM"),
+            ("Modèle", _metadata_value(step, "llm_model", pack.llm_model if pack else None)),
+            (
+                "Température",
+                _metadata_value(step, "llm_temperature", pack.llm_temperature if pack else None),
+            ),
+            (
+                "Max tokens",
+                _metadata_value(step, "llm_max_tokens", pack.llm_max_tokens if pack else None),
+            ),
+            (
+                "Version",
+                _metadata_value(step, "prompt_version", pack.prompt_version if pack else None),
+            ),
+        ]
+    )
+
+
+def _metadata_value(
+    step: dict[str, Any] | None,
+    key: str,
+    fallback: object | None = None,
+) -> str | None:
+    if step is not None and key in step:
+        return _optional_string(step.get(key))
+    return _optional_string(fallback)
+
+
+def _optional_string(value: object | None) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _document_ai_processor_version_label(value: object | None) -> str | None:
+    version = _optional_string(value)
+    if version == "pretrained-layout-parser-v1.6-2026-01-13":
+        return f"{version} (Gemini 3.0 Flash)"
+    return version
+
+
+def _processor_id_from_resource_name(resource_name: str | None) -> str | None:
+    if resource_name is None:
+        return None
+
+    parts = PurePosixPath(resource_name).parts
+    try:
+        processor_index = parts.index("processors")
+        return parts[processor_index + 1]
+    except (ValueError, IndexError):
+        return None
+
+
+def _compact_metadata_fields(
+    pairs: list[tuple[str, str | None]],
+) -> list[StyleGuideOverviewMetadataField]:
+    return [
+        StyleGuideOverviewMetadataField(label=label, value=value)
+        for label, value in pairs
+        if value is not None
+    ]
 
 
 def _to_active_pack(pack: StyleGuidePackSnapshot) -> StyleGuideOverviewActivePack:
@@ -406,6 +553,10 @@ def _to_active_pack(pack: StyleGuidePackSnapshot) -> StyleGuideOverviewActivePac
         hard_rules_count=pack.hard_rules_count,
         soft_rules_count=pack.soft_rules_count,
         scopes=pack.scopes,
+        metadata=_build_execution_metadata(
+            extraction_steps_json=pack.extraction_steps_json,
+            pack=pack,
+        ),
     )
 
 

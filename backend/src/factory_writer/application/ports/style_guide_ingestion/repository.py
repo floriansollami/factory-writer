@@ -89,6 +89,16 @@ class StyleGuidePackSnapshot:
     hard_rules_count: int
     soft_rules_count: int
     scopes: list[str]
+    prompt_registry_provider: str
+    prompt_name: str
+    prompt_version: str
+    llm_model: str
+    llm_temperature: float
+    llm_max_tokens: int
+    llm_response_format_name: str
+    rendered_system_prompt_hash: str
+    rendered_user_prompt_hash: str
+    extraction_steps_json: Any | None
     validation_summary_json: Any | None
     created_at: datetime | None = None
     updated_at: datetime | None = None
@@ -207,6 +217,22 @@ class StyleGuideRepositoryPort(Protocol):
         latency_ms: int | None = None,
         operation_id: str | None = None,
         output_uri: str | None = None,
+    ) -> StyleGuideIngestionRunSnapshot: ...
+
+    async def record_llm_draft_pack_metadata(
+        self,
+        *,
+        run_id: uuid.UUID,
+        prompt_registry_provider: str,
+        prompt_name: str,
+        prompt_version: str,
+        llm_model: str,
+        llm_temperature: float,
+        llm_max_tokens: int,
+        llm_response_format: str,
+        status: str,
+        system_prompt_hash: str | None = None,
+        user_prompt_hash: str | None = None,
     ) -> StyleGuideIngestionRunSnapshot: ...
 
     async def get_latest_draft_pack(self) -> StyleGuidePackSnapshot | None: ...

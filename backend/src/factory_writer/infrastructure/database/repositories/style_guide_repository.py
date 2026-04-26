@@ -437,6 +437,41 @@ class StyleGuideRepository:
 
             return self._to_run_snapshot(run)
 
+    async def record_llm_draft_pack_metadata(
+        self,
+        *,
+        run_id: uuid.UUID,
+        prompt_registry_provider: str,
+        prompt_name: str,
+        prompt_version: str,
+        llm_model: str,
+        llm_temperature: float,
+        llm_max_tokens: int,
+        llm_response_format: str,
+        status: str,
+        system_prompt_hash: str | None = None,
+        user_prompt_hash: str | None = None,
+    ) -> StyleGuideIngestionRunSnapshot:
+        async with self._session_factory() as session:
+            async with session.begin():
+                run = await self._require_style_guide_run(session, run_id)
+
+                run.extraction_steps_json = _upsert_llm_draft_pack_step(
+                    steps=run.extraction_steps_json,
+                    prompt_registry_provider=prompt_registry_provider,
+                    prompt_name=prompt_name,
+                    prompt_version=prompt_version,
+                    llm_model=llm_model,
+                    llm_temperature=llm_temperature,
+                    llm_max_tokens=llm_max_tokens,
+                    llm_response_format=llm_response_format,
+                    status=status,
+                    system_prompt_hash=system_prompt_hash,
+                    user_prompt_hash=user_prompt_hash,
+                )
+
+            return self._to_run_snapshot(run)
+
     async def get_latest_draft_pack(self) -> StyleGuidePackSnapshot | None:
         async with self._session_factory() as session:
             pack = await self._get_latest_pack_by_status(
@@ -677,6 +712,19 @@ class StyleGuideRepository:
                     },
                 )
                 pack.ingestion_run = run
+                run.extraction_steps_json = _upsert_llm_draft_pack_step(
+                    steps=run.extraction_steps_json,
+                    prompt_registry_provider=metadata.prompt_registry_provider,
+                    prompt_name=metadata.prompt_name,
+                    prompt_version=metadata.prompt_version,
+                    llm_model=metadata.llm_model,
+                    llm_temperature=metadata.llm_temperature,
+                    llm_max_tokens=metadata.llm_max_tokens,
+                    llm_response_format=metadata.llm_response_format,
+                    status="SUCCEEDED",
+                    system_prompt_hash=metadata.system_prompt_hash,
+                    user_prompt_hash=metadata.user_prompt_hash,
+                )
 
                 new_rules = [
                     StyleRule(
@@ -1203,6 +1251,16 @@ class StyleGuideRepository:
             temporal_workflow_id=pack.ingestion_run.temporal_workflow_id,
             run_statut=pack.ingestion_run.statut,
             run_current_step=pack.ingestion_run.current_step,
+            prompt_registry_provider=pack.prompt_registry_provider,
+            prompt_name=pack.prompt_name,
+            prompt_version=pack.prompt_version,
+            llm_model=pack.llm_model,
+            llm_temperature=pack.llm_temperature,
+            llm_max_tokens=pack.llm_max_tokens,
+            llm_response_format_name=pack.llm_response_format_name,
+            rendered_system_prompt_hash=pack.rendered_system_prompt_hash,
+            rendered_user_prompt_hash=pack.rendered_user_prompt_hash,
+            extraction_steps_json=pack.ingestion_run.extraction_steps_json,
             validation_summary_json=pack.validation_summary_json,
             created_at=pack.created_at,
             updated_at=pack.updated_at,
@@ -1320,6 +1378,53 @@ def _upsert_layout_parse_step(
     processor_version = PurePosixPath(parser_resource_id).name
     if processor_version:
         step_payload["processor_version"] = processor_version
+
+    if existing_step is None:
+        normalized_steps.append(step_payload)
+        return normalized_steps
+
+    existing_step.update(step_payload)
+    return normalized_steps
+
+
+def _upsert_llm_draft_pack_step(
+    *,
+    steps: Any | None,
+    prompt_registry_provider: str,
+    prompt_name: str,
+    prompt_version: str,
+    llm_model: str,
+    llm_temperature: float,
+    llm_max_tokens: int,
+    llm_response_format: str,
+    status: str,
+    system_prompt_hash: str | None,
+    user_prompt_hash: str | None,
+) -> list[dict[str, Any]]:
+    normalized_steps = [dict(step) for step in steps] if isinstance(steps, list) else []
+
+    existing_step = next(
+        (step for step in normalized_steps if step.get("step_kind") == "LLM_DRAFT_PACK"),
+        None,
+    )
+
+    step_payload: dict[str, Any] = {
+        "step_kind": "LLM_DRAFT_PACK",
+        "provider": "litellm",
+        "status": status,
+        "prompt_registry_provider": prompt_registry_provider,
+        "prompt_name": prompt_name,
+        "prompt_version": prompt_version,
+        "llm_model": llm_model,
+        "llm_temperature": llm_temperature,
+        "llm_max_tokens": llm_max_tokens,
+        "llm_response_format": llm_response_format,
+    }
+
+    if system_prompt_hash is not None:
+        step_payload["system_prompt_hash"] = system_prompt_hash
+    if user_prompt_hash is not None:
+        step_payload["user_prompt_hash"] = user_prompt_hash
 
     if existing_step is None:
         normalized_steps.append(step_payload)
