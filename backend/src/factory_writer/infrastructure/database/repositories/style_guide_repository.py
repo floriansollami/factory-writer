@@ -2,8 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
-from pathlib import PurePosixPath
-from typing import Any, cast
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -40,6 +39,17 @@ from factory_writer.infrastructure.database.models.poc_ingestion import (
     StyleRule,
 )
 from factory_writer.infrastructure.database.models.taxonomy import TaxonomieProduit
+from factory_writer.infrastructure.database.repositories.style_guide_repository_mappers import (
+    build_rule_evidence_json,
+    current_taxonomie_code,
+    find_pack_rule,
+    normalize_rule_text,
+    normalize_taxonomie_code,
+    ordered_pack_rules,
+    upsert_layout_parse_step,
+    upsert_llm_draft_pack_step,
+    validate_rule_invariants,
+)
 
 
 class StyleGuideRepository:
@@ -426,7 +436,7 @@ class StyleGuideRepository:
                 document_source.collection.statut = StatutDocumentCollection.EN_COURS
                 document_source.collection.dernier_message_erreur = None
 
-                run.extraction_steps_json = _upsert_layout_parse_step(
+                run.extraction_steps_json = upsert_layout_parse_step(
                     steps=run.extraction_steps_json,
                     parser_resource_id=parser_resource_id,
                     mode=mode,
@@ -456,7 +466,7 @@ class StyleGuideRepository:
             async with session.begin():
                 run = await self._require_style_guide_run(session, run_id)
 
-                run.extraction_steps_json = _upsert_llm_draft_pack_step(
+                run.extraction_steps_json = upsert_llm_draft_pack_step(
                     steps=run.extraction_steps_json,
                     prompt_registry_provider=prompt_registry_provider,
                     prompt_name=prompt_name,
@@ -531,7 +541,7 @@ class StyleGuideRepository:
     ) -> list[StyleGuideRuleSnapshot]:
         async with self._session_factory() as session:
             pack = await self._require_style_guide_pack(session, style_pack_id)
-            return [self._to_rule_snapshot(rule) for rule in _ordered_pack_rules(pack.style_rules)]
+            return [self._to_rule_snapshot(rule) for rule in ordered_pack_rules(pack.style_rules)]
 
     async def update_style_rule(
         self,
@@ -550,26 +560,24 @@ class StyleGuideRepository:
         async with self._session_factory() as session:
             async with session.begin():
                 pack = await self._require_editable_style_guide_pack(session, style_pack_id)
-                rule = _find_pack_rule(pack, rule_id)
+                rule = find_pack_rule(pack, rule_id)
                 taxonomy_map = await self._load_taxonomy_map(session)
                 mutated_business_fields = False
 
                 normalized_texte_regle = (
-                    _normalize_rule_text(texte_regle) if texte_regle is not None else None
+                    normalize_rule_text(texte_regle) if texte_regle is not None else None
                 )
                 normalized_taxonomie_code = (
-                    _normalize_taxonomie_code(taxonomie_code)
-                    if taxonomie_code is not None
-                    else None
+                    normalize_taxonomie_code(taxonomie_code) if taxonomie_code is not None else None
                 )
                 resolved_type_regle = type_regle or rule.type_regle
                 resolved_niveau_contrainte = niveau_contrainte or rule.niveau_contrainte
                 resolved_taxonomie_code = (
                     normalized_taxonomie_code
                     if taxonomie_code is not None
-                    else _current_taxonomie_code(rule)
+                    else current_taxonomie_code(rule)
                 )
-                _validate_rule_invariants(
+                validate_rule_invariants(
                     type_regle=resolved_type_regle,
                     niveau_contrainte=resolved_niveau_contrainte,
                     taxonomie_code=resolved_taxonomie_code,
@@ -712,7 +720,7 @@ class StyleGuideRepository:
                     },
                 )
                 pack.ingestion_run = run
-                run.extraction_steps_json = _upsert_llm_draft_pack_step(
+                run.extraction_steps_json = upsert_llm_draft_pack_step(
                     steps=run.extraction_steps_json,
                     prompt_registry_provider=metadata.prompt_registry_provider,
                     prompt_name=metadata.prompt_name,
@@ -746,7 +754,7 @@ class StyleGuideRepository:
                         source_evidence_page_end=chunk_map[
                             rule.source_evidence_provider_id
                         ].page_end,
-                        source_evidence_json=_build_rule_evidence_json(
+                        source_evidence_json=build_rule_evidence_json(
                             chunk_map[rule.source_evidence_provider_id]
                         ),
                     )
@@ -1341,152 +1349,3 @@ class StyleGuideRepository:
             statut=StatutSource.EN_ATTENTE,
             dernier_message_erreur=None,
         )
-
-
-def _upsert_layout_parse_step(
-    *,
-    steps: Any | None,
-    parser_resource_id: str,
-    mode: str,
-    latency_ms: int | None,
-    operation_id: str | None,
-    output_uri: str | None,
-) -> list[dict[str, Any]]:
-    normalized_steps = [dict(step) for step in steps] if isinstance(steps, list) else []
-
-    existing_step = next(
-        (step for step in normalized_steps if step.get("step_kind") == "LAYOUT_PARSE"),
-        None,
-    )
-
-    step_payload: dict[str, Any] = {
-        "step_kind": "LAYOUT_PARSE",
-        "provider": "google_document_ai",
-        "processor_kind": "layout_parser",
-        "mode": mode,
-        "processor_resource_name": parser_resource_id,
-        "status": "SUCCEEDED" if mode == "online" or existing_step is not None else "RUNNING",
-    }
-
-    if latency_ms is not None:
-        step_payload["latency_ms"] = latency_ms
-    if operation_id is not None:
-        step_payload["provider_job_id"] = operation_id
-    if output_uri is not None:
-        step_payload["output_uri"] = output_uri
-
-    processor_version = PurePosixPath(parser_resource_id).name
-    if processor_version:
-        step_payload["processor_version"] = processor_version
-
-    if existing_step is None:
-        normalized_steps.append(step_payload)
-        return normalized_steps
-
-    existing_step.update(step_payload)
-    return normalized_steps
-
-
-def _upsert_llm_draft_pack_step(
-    *,
-    steps: Any | None,
-    prompt_registry_provider: str,
-    prompt_name: str,
-    prompt_version: str,
-    llm_model: str,
-    llm_temperature: float,
-    llm_max_tokens: int,
-    llm_response_format: str,
-    status: str,
-    system_prompt_hash: str | None,
-    user_prompt_hash: str | None,
-) -> list[dict[str, Any]]:
-    normalized_steps = [dict(step) for step in steps] if isinstance(steps, list) else []
-
-    existing_step = next(
-        (step for step in normalized_steps if step.get("step_kind") == "LLM_DRAFT_PACK"),
-        None,
-    )
-
-    step_payload: dict[str, Any] = {
-        "step_kind": "LLM_DRAFT_PACK",
-        "provider": "litellm",
-        "status": status,
-        "prompt_registry_provider": prompt_registry_provider,
-        "prompt_name": prompt_name,
-        "prompt_version": prompt_version,
-        "llm_model": llm_model,
-        "llm_temperature": llm_temperature,
-        "llm_max_tokens": llm_max_tokens,
-        "llm_response_format": llm_response_format,
-    }
-
-    if system_prompt_hash is not None:
-        step_payload["system_prompt_hash"] = system_prompt_hash
-    if user_prompt_hash is not None:
-        step_payload["user_prompt_hash"] = user_prompt_hash
-
-    if existing_step is None:
-        normalized_steps.append(step_payload)
-        return normalized_steps
-
-    existing_step.update(step_payload)
-    return normalized_steps
-
-
-def _build_rule_evidence_json(chunk: StyleGuideChunkCandidate) -> dict[str, Any]:
-    evidence_json = dict(chunk.evidence_json)
-    evidence_json["index_chunk"] = chunk.index_chunk
-    evidence_json["provider_id"] = chunk.provider_id
-    return evidence_json
-
-
-def _find_pack_rule(pack: StylePack, rule_id: uuid.UUID) -> StyleRule:
-    rule = next((candidate for candidate in pack.style_rules if candidate.id == rule_id), None)
-    if rule is None:
-        raise KeyError(str(rule_id))
-    return cast(StyleRule, rule)
-
-
-def _ordered_pack_rules(rules: list[StyleRule]) -> list[StyleRule]:
-    return sorted(
-        rules,
-        key=lambda rule: (
-            rule.created_at or datetime.min.replace(tzinfo=UTC),
-            str(rule.id),
-        ),
-    )
-
-
-def _normalize_rule_text(value: str) -> str:
-    normalized = value.strip()
-    if len(normalized) < 8:
-        raise ValueError("La règle doit être explicite.")
-    return normalized
-
-
-def _normalize_taxonomie_code(value: str | None) -> str | None:
-    if value is None:
-        return None
-    normalized = value.strip()
-    return normalized or None
-
-
-def _current_taxonomie_code(rule: StyleRule) -> str | None:
-    if rule.taxonomie_produit is None:
-        return None
-    return str(rule.taxonomie_produit.famille_code)
-
-
-def _validate_rule_invariants(
-    *,
-    type_regle: TypeRegle,
-    niveau_contrainte: NiveauContrainte,
-    taxonomie_code: str | None,
-) -> None:
-    if type_regle == TypeRegle.TON and taxonomie_code is None:
-        raise ValueError("Une règle de ton doit cibler une famille produit.")
-    if type_regle != TypeRegle.TON and taxonomie_code is not None:
-        raise ValueError("Seules les règles de ton peuvent cibler une famille produit.")
-    if type_regle == TypeRegle.PROMESSE_INTERDITE and niveau_contrainte != NiveauContrainte.HARD:
-        raise ValueError("Une promesse interdite doit toujours être en niveau HARD.")

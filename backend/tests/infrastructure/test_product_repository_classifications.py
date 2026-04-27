@@ -17,7 +17,7 @@ from factory_writer.infrastructure.database.models.poc_ingestion import (
     DocumentSource,
     TechnicalReviewCase,
 )
-from factory_writer.infrastructure.database.repositories.product_repository import (
+from factory_writer.infrastructure.database.repositories.product_repository_mappers import (
     _technical_classifications_to_dict,
 )
 

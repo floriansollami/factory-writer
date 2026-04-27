@@ -7,7 +7,7 @@ import pytest
 
 from factory_writer.application.ports.product_technical_ingestion import ProductSnapshot
 from factory_writer.infrastructure.database.models import CommercialSignalSnapshot
-from factory_writer.infrastructure.database.repositories.product_repository import (
+from factory_writer.infrastructure.database.repositories.product_repository_mappers import (
     _choose_commercial_snapshot,
     _commercial_snapshot_matches_product,
 )
