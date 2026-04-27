@@ -279,6 +279,17 @@ function findMatchingItemIndexes(textContent: TextContent, excerpt: string): Set
     );
   }
 
+  for (const candidate of excerptCandidates) {
+    const compactMatch = findCompactMatchRange(combined, itemRanges, candidate);
+    if (compactMatch !== null) {
+      return new Set(
+        itemRanges
+          .filter((range) => range.end > compactMatch.start && range.start < compactMatch.end)
+          .map((range) => range.itemIndex),
+      );
+    }
+  }
+
   const fallbackMatches = excerptCandidates
     .map((candidate) => findApproximateMatchRange(combined, itemRanges, candidate))
     .filter((match): match is ApproximateMatchRange => match !== null)
@@ -299,6 +310,41 @@ function findMatchingItemIndexes(textContent: TextContent, excerpt: string): Set
   }
 
   return new Set();
+}
+
+function findCompactMatchRange(
+  combined: string,
+  itemRanges: Array<{ start: number; end: number; itemIndex: number }>,
+  excerptCandidate: string,
+): ApproximateMatchRange | null {
+  const candidate = compactSearchValue(excerptCandidate);
+  if (candidate.length < 3) {
+    return null;
+  }
+
+  const combinedCompact = compactSearchValueWithIndexes(combined);
+  const compactStart = combinedCompact.value.indexOf(candidate);
+  if (compactStart === -1) {
+    return null;
+  }
+
+  const compactEnd = compactStart + candidate.length - 1;
+  const start = combinedCompact.indexes[compactStart];
+  const end = combinedCompact.indexes[compactEnd];
+  if (start === undefined || end === undefined) {
+    return null;
+  }
+
+  const overlappingItems = itemRanges.filter((range) => range.end > start && range.start < end + 1);
+  if (overlappingItems.length === 0) {
+    return null;
+  }
+
+  return {
+    start: overlappingItems[0].start,
+    end: overlappingItems[overlappingItems.length - 1].end,
+    score: candidate.length,
+  };
 }
 
 function buildExcerptCandidates(excerpt: string): string[] {
@@ -405,7 +451,8 @@ function findApproximateMatchRange(
   }
 
   const matchedCharLength = bestRun.end - bestRun.start;
-  if (matchedCharLength < 18) {
+  const minimumMatchedCharLength = candidateTokens.some((token) => /\d/.test(token)) ? 4 : 18;
+  if (matchedCharLength < minimumMatchedCharLength) {
     return null;
   }
 
@@ -491,11 +538,37 @@ function findLongestCommonTokenRun(
 function normalizeSearchValue(value: string): string {
   return value
     .normalize("NFD")
+    .replace(/n\s*[·.-]\s*m/giu, "n m")
     .replace(/\p{Diacritic}/gu, "")
+    .replace(/[Øø⌀]/gu, " diametre ")
     .toLowerCase()
+    .replace(/(\p{Letter})(?=\p{Number})/gu, "$1 ")
+    .replace(/(\p{Number})(?=\p{Letter})/gu, "$1 ")
     .replace(/[^\p{Letter}\p{Number}|-]+/gu, " ")
     .replace(/\s+/g, " ")
+    .replace(/\bveri fi er\b/g, "verifier")
+    .replace(/\bfi nie\b/g, "finie")
     .trim();
+}
+
+function compactSearchValue(value: string): string {
+  return value.replace(/[^\p{Letter}\p{Number}]+/gu, "");
+}
+
+function compactSearchValueWithIndexes(value: string): { value: string; indexes: number[] } {
+  let compact = "";
+  const indexes: number[] = [];
+
+  Array.from(value).forEach((character, index) => {
+    if (!/[\p{Letter}\p{Number}]/u.test(character)) {
+      return;
+    }
+
+    compact += character;
+    indexes.push(index);
+  });
+
+  return { value: compact, indexes };
 }
 
 function escapeHtml(value: string): string {

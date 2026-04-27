@@ -545,6 +545,10 @@ function IngestionProgressDashboard({
               const isReviewStepReady = isReviewReady && step.id === "editorial-review";
               const canOpenReview = isReviewStepReady && onOpenRulesReview !== undefined;
               const isRunningStep = step.status === "running" && !isReviewStepReady;
+              const showStepEta =
+                step.eta !== undefined &&
+                !isReviewStepReady &&
+                (step.status === "running" || step.status === "pending");
               const stepMetadata = metadataFieldsForWorkflowStep(step.id, workflow.metadata);
 
               return (
@@ -595,7 +599,7 @@ function IngestionProgressDashboard({
                         </Button>
                       </div>
                     ) : null}
-                    {step.eta && !isReviewStepReady ? (
+                    {showStepEta ? (
                       <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs leading-5 text-[var(--color-muted)]">
                         <span>{step.eta}</span>
                         {isRunningStep ? (
