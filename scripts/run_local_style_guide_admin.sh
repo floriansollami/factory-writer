@@ -296,6 +296,89 @@ run_migrations() {
   exit 1
 }
 
+sync_local_poc_reference_data() {
+  cd "$ROOT_DIR/backend"
+  DB__URL="$DB_URL" uv run python - <<'PY'
+import os
+
+import psycopg
+from psycopg.types.json import Json
+from sqlalchemy.engine import make_url
+
+SENSITIVE_OPTIONAL_FIELDS = {
+    "eco_certifications",
+    "certification_claim_type",
+    "covered_component",
+    "excluded_component",
+    "unsupported_claims",
+    "technical_claim_limits",
+}
+
+CONTROL_TYPES = {
+    "assembly_people_required": "NUMBER",
+    "usage_capacity": "NUMBER",
+}
+
+url = make_url(os.environ["DB__URL"]).set(drivername="postgresql")
+dsn = url.render_as_string(hide_password=False)
+
+with psycopg.connect(dsn) as conn:
+    with conn.cursor() as cur:
+        cur.execute("SELECT to_regclass('public.product_sheet_requirement_profile')")
+        if cur.fetchone()[0] is None:
+            conn.commit()
+            raise SystemExit(0)
+
+        cur.execute(
+            """
+            SELECT id, requirements_json
+            FROM product_sheet_requirement_profile
+            WHERE is_active IS TRUE
+            """
+        )
+
+        for profile_id, requirements_json in cur.fetchall():
+            if not isinstance(requirements_json, dict):
+                continue
+
+            requirements = requirements_json.get("requirements")
+            if not isinstance(requirements, list):
+                continue
+
+            changed = False
+            for requirement in requirements:
+                if not isinstance(requirement, dict):
+                    continue
+
+                field_name = requirement.get("field_name")
+                if (
+                    field_name in SENSITIVE_OPTIONAL_FIELDS
+                    and requirement.get("level") == "OPTIONAL"
+                    and requirement.get("min_confidence") != 0.8
+                ):
+                    requirement["min_confidence"] = 0.8
+                    changed = True
+
+                control_type = CONTROL_TYPES.get(field_name)
+                if control_type and requirement.get("control_type") != control_type:
+                    requirement["control_type"] = control_type
+                    changed = True
+
+            if changed:
+                cur.execute(
+                    """
+                    UPDATE product_sheet_requirement_profile
+                    SET requirements_json = %s,
+                        updated_at = now()
+                    WHERE id = %s
+                    """,
+                    (Json(requirements_json), profile_id),
+                )
+
+    conn.commit()
+PY
+}
+
 ensure_fake_gcs() {
   local container_state=""
 
@@ -526,6 +609,7 @@ script_log db "Synchronisation de l'environnement Python, migrations et seed tax
   uv sync --extra dev >/dev/null
   reset_local_poc_state
   run_migrations
+  sync_local_poc_reference_data
   DB__URL="$DB_URL" uv run python -m factory_writer.scripts.seed_taxonomie >/dev/null
 )
 

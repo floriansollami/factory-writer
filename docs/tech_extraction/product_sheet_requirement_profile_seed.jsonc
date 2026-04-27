@@ -1,0 +1,320 @@
+// 0.90 pour dimensions/matière, car une erreur crée une fiche fausse.
+// 0.85 pour SKU/nom, car c’est important mais souvent plus facile à détecter et à recouper.
+// 0.80 pour finition, capacité et champs conditionnels de notice.
+// 0.70 seulement pour détecter un conflit crédible ou garder un optionnel, pas pour promouvoir un champ
+// control_type=NUMBER ne transforme pas la valeur source en nombre : il sert seulement au contrôle déterministe
+// des bornes pour les profils où cette lecture numérique a du sens.
+
+{
+  "id": "00000000-0000-0000-0000-000000000201",
+  "is_active": true,
+  "created_at": "2026-04-27T08:30:00",
+  "updated_at": "2026-04-27T08:30:00",
+  "famille_code": "mobilier_jardin",
+  "sous_famille_code": "table_repas_exterieur",
+  "requirements_json": {
+    "defaults": {
+      "conflict_confidence_threshold": 0.7
+    },
+    "requirements": [
+      {
+        // le SKU est obligatoire. Si aucun candidat sku n’est extrait, on bloque la génération avec un review case.
+        "level": "REQUIRED", 
+
+        // on regarde les candidats extraits dont le label est exactement sku
+        "field_name": "sku",
+
+        // on veut une seule valeur finale promue pour ce champ. Pas plusieurs SKU.
+        "cardinality": "SINGLE",
+
+        // un candidat sku doit avoir au moins 85 % de confiance Document AI.
+        // En dessous, il part en review case LOW_CONFIDENCE.
+        "min_confidence": 0.85,
+
+        // si deux valeurs différentes et crédibles apparaissent, on bloque au lieu de choisir arbitrairement.
+        //   { "value": "220 cm", "confidence": 0.96 },
+        //   { "value": "240 cm", "confidence": 0.82 }
+        "conflict_policy": "BLOCK_ON_CREDIBLE_CONFLICT",
+
+        //  si plusieurs PDFs donnent un SKU valide, on préfère dans cet ordre :
+        // 1) Fiche technique produit
+        // 2) Fiche matière
+        // 3) Notice de montage
+        "source_priority": [
+          "TECHNICAL_SHEET",
+          "MATERIAL_SPECIFICATION",
+          "ASSEMBLY_NOTICE"
+        ],
+
+        // si plusieurs candidats SKU sont extraits, le backend essaie de choisir 
+        // la meilleure valeur canonique au lieu de tout garder.
+        // une valeur canonique est la valeur propre que le backend garde après avoir comparé plusieurs extractions possibles.
+        "selection_policy": "CANONICAL_SINGLE",
+
+        // sert à éviter de bloquer pour du bruit faible.
+        //   { "value": "AX-TB-RIV-220", "confidence": 0.94 },
+        //   { "value": "AX-TB-RIV-22O", "confidence": 0.41 }
+        // Si une autre valeur différente a un score inférieur à 70 %, on la considère trop faible pour bloquer
+        "conflict_confidence_threshold": 0.7
+      },
+      {
+        "level": "REQUIRED",
+        "field_name": "product_name",
+        "cardinality": "SINGLE",
+        "min_confidence": 0.85,
+        "conflict_policy": "BLOCK_ON_CREDIBLE_CONFLICT",
+        "selection_policy": "CANONICAL_SINGLE",
+        "conflict_confidence_threshold": 0.7
+      },
+      {
+        "level": "REQUIRED",
+        "bounds": {
+          "max": 360,
+          "min": 120
+        },
+        "field_name": "dimension_width",
+        "cardinality": "SINGLE",
+        "target_unit": "cm",
+        "require_unit": true,
+        "min_confidence": 0.90,
+        "conflict_policy": "BLOCK_ON_CREDIBLE_CONFLICT",
+        "source_priority": [
+          "TECHNICAL_SHEET"
+        ],
+        "selection_policy": "CANONICAL_SINGLE",
+        "conflict_confidence_threshold": 0.7
+      },
+      {
+        "level": "REQUIRED",
+        "bounds": {
+          "max": 140,
+          "min": 60
+        },
+        "field_name": "dimension_depth",
+        "cardinality": "SINGLE",
+        "target_unit": "cm",
+        "require_unit": true,
+        "min_confidence": 0.90,
+        "conflict_policy": "BLOCK_ON_CREDIBLE_CONFLICT",
+        "source_priority": [
+          "TECHNICAL_SHEET"
+        ],
+        "selection_policy": "CANONICAL_SINGLE",
+        "conflict_confidence_threshold": 0.7
+      },
+      {
+        "level": "REQUIRED",
+        "bounds": {
+          "max": 90,
+          "min": 60
+        },
+        "field_name": "dimension_height",
+        "cardinality": "SINGLE",
+        "target_unit": "cm",
+        "require_unit": true,
+        "min_confidence": 0.90,
+        "conflict_policy": "BLOCK_ON_CREDIBLE_CONFLICT",
+        "source_priority": [
+          "TECHNICAL_SHEET"
+        ],
+        "selection_policy": "CANONICAL_SINGLE",
+        "conflict_confidence_threshold": 0.7
+      },
+      {
+        "level": "REQUIRED",
+        "field_name": "material_primary",
+        "cardinality": "SINGLE",
+        "min_confidence": 0.90,
+        "conflict_policy": "BLOCK_ON_CREDIBLE_CONFLICT",
+        "source_priority": [
+          "MATERIAL_SPECIFICATION",
+          "TECHNICAL_SHEET"
+        ],
+        "selection_policy": "CANONICAL_SINGLE",
+        "conflict_confidence_threshold": 0.7
+      },
+      {
+        "level": "REQUIRED",
+        "field_name": "finish_primary",
+        "cardinality": "SINGLE",
+        "min_confidence": 0.8,
+        "conflict_policy": "BLOCK_ON_CREDIBLE_CONFLICT",
+        "selection_policy": "CANONICAL_SINGLE",
+        "conflict_confidence_threshold": 0.7
+      },
+      {
+        "level": "REQUIRED",
+        "bounds": {
+          "max": 14,
+          "min": 2
+        },
+        "field_name": "usage_capacity",
+        "cardinality": "SINGLE",
+        "min_confidence": 0.8,
+
+        // Document AI extrait une valeur texte, par exemple "8 couverts".
+        // Pour ce profil table uniquement, le backend lit le nombre pour contrôler les bornes 2-14,
+        // mais la valeur promue reste le texte source.
+        "control_type": "NUMBER",
+
+        "conflict_policy": "BLOCK_ON_CREDIBLE_CONFLICT",
+        "source_priority": [
+          "TECHNICAL_SHEET"
+        ],
+        "selection_policy": "CANONICAL_SINGLE",
+        "conflict_confidence_threshold": 0.7
+      },
+      {
+        "level": "OPTIONAL",
+        "bounds": {
+          "max": 140,
+          "min": 15
+        },
+        "field_name": "weight",
+        "cardinality": "SINGLE",
+        "target_unit": "kg",
+        "require_unit": true,
+        "conflict_policy": "BLOCK_ON_CREDIBLE_CONFLICT",
+        "selection_policy": "CANONICAL_SINGLE",
+        "conflict_confidence_threshold": 0.7
+      },
+      {
+        "level": "CONDITIONAL",
+        "condition": "ASSEMBLY_NOTICE_PRESENT",
+        "field_name": "assembly_constraints",
+
+        // on accepte plusieurs contraintes de montage valides pour le même champ assembly_constraints.
+        //         [
+        //   {
+        //     "field_name": "assembly_constraints",
+        //     "raw_value": "Serrer progressivement les vis en croix",
+        //     "confidence": 0.91
+        //   },
+        //   {
+        //     "field_name": "assembly_constraints",
+        //     "raw_value": "Contrôler l’équerrage avant serrage final",
+        //     "confidence": 0.88
+        //   },
+        //   {
+        //     "field_name": "assembly_constraints",
+        //     "raw_value": "Ne pas utiliser de visseuse à choc",
+        //     "confidence": 0.93
+        //   }
+        // ]
+        "cardinality": "MULTIPLE",
+        
+        
+        "min_confidence": 0.8,
+        "conflict_policy": "BLOCK_ON_CREDIBLE_CONFLICT",
+        "source_priority": [
+          "ASSEMBLY_NOTICE"
+        ],
+        "selection_policy": "KEEP_ALL_VALID",
+        "conflict_confidence_threshold": 0.7
+      },
+      {
+        "level": "CONDITIONAL",
+        "condition": "ASSEMBLY_NOTICE_PRESENT",
+        "field_name": "required_tool",
+        "cardinality": "MULTIPLE",
+        "min_confidence": 0.8,
+        "conflict_policy": "BLOCK_ON_CREDIBLE_CONFLICT",
+        "source_priority": [
+          "ASSEMBLY_NOTICE"
+        ],
+        "selection_policy": "KEEP_ALL_VALID",
+        "conflict_confidence_threshold": 0.7
+      },
+      {
+        "level": "CONDITIONAL",
+        "bounds": {
+          "max": 4,
+          "min": 1
+        },
+        "condition": "ASSEMBLY_NOTICE_PRESENT",
+        "field_name": "assembly_people_required",
+        "cardinality": "SINGLE",
+        "min_confidence": 0.8,
+        "control_type": "NUMBER",
+        "conflict_policy": "BLOCK_ON_CREDIBLE_CONFLICT",
+        "source_priority": [
+          "ASSEMBLY_NOTICE"
+        ],
+        "selection_policy": "CANONICAL_SINGLE",
+        "conflict_confidence_threshold": 0.7
+      },
+      {
+        "level": "OPTIONAL",
+        "field_name": "eco_certifications",
+        "cardinality": "MULTIPLE",
+        "min_confidence": 0.8,
+        "missing_action": "DO_NOT_MENTION",
+        "conflict_policy": "BLOCK_ON_CREDIBLE_CONFLICT",
+        "source_priority": [
+          "MATERIAL_SPECIFICATION"
+        ],
+        "selection_policy": "KEEP_ALL_VALID",
+        "conflict_confidence_threshold": 0.7
+      },
+      {
+        "level": "OPTIONAL",
+        "field_name": "certification_claim_type",
+        "cardinality": "MULTIPLE",
+        "min_confidence": 0.8,
+        "missing_action": "DO_NOT_MENTION",
+        "conflict_policy": "BLOCK_ON_CREDIBLE_CONFLICT",
+        "source_priority": [
+          "MATERIAL_SPECIFICATION"
+        ],
+        "selection_policy": "KEEP_ALL_VALID",
+        "conflict_confidence_threshold": 0.7
+      },
+      {
+        "level": "OPTIONAL",
+        "field_name": "covered_component",
+        "cardinality": "MULTIPLE",
+        "min_confidence": 0.8,
+        "missing_action": "DO_NOT_MENTION",
+        "conflict_policy": "BLOCK_ON_CREDIBLE_CONFLICT",
+        "source_priority": [
+          "MATERIAL_SPECIFICATION"
+        ],
+        "selection_policy": "KEEP_ALL_VALID",
+        "conflict_confidence_threshold": 0.7
+      },
+      {
+        "level": "OPTIONAL",
+        "field_name": "excluded_component",
+        "cardinality": "MULTIPLE",
+        "min_confidence": 0.8,
+        "missing_action": "DO_NOT_MENTION",
+        "conflict_policy": "BLOCK_ON_CREDIBLE_CONFLICT",
+        "source_priority": [
+          "MATERIAL_SPECIFICATION"
+        ],
+        "selection_policy": "KEEP_ALL_VALID",
+        "conflict_confidence_threshold": 0.7
+      },
+      {
+        "level": "OPTIONAL",
+        "field_name": "unsupported_claims",
+        "cardinality": "MULTIPLE",
+        "min_confidence": 0.8,
+        "missing_action": "DO_NOT_MENTION",
+        "conflict_policy": "BLOCK_ON_CREDIBLE_CONFLICT",
+        "selection_policy": "KEEP_ALL_VALID",
+        "conflict_confidence_threshold": 0.7
+      },
+      {
+        "level": "OPTIONAL",
+        "field_name": "technical_claim_limits",
+        "cardinality": "MULTIPLE",
+        "min_confidence": 0.8,
+        "missing_action": "DO_NOT_MENTION",
+        "conflict_policy": "BLOCK_ON_CREDIBLE_CONFLICT",
+        "selection_policy": "KEEP_ALL_VALID",
+        "conflict_confidence_threshold": 0.7
+      }
+    ]
+  }
+}

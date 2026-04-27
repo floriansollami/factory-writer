@@ -83,17 +83,12 @@ class CommercialSignalSnapshot(BaseModel):
     )
 
 
-class GenerationReadinessProfile(BaseModel):
-    __tablename__ = "generation_readiness_profile"
-    __table_args__ = (
-        UniqueConstraint("profile_code", name="uq_generation_readiness_profile_code"),
-        {"comment": "Profil POC des facts requis avant generation fiche produit."},
-    )
+class ProductSheetRequirementProfile(BaseModel):
+    __tablename__ = "product_sheet_requirement_profile"
+    __table_args__ = ({"comment": "Profil POC des prérequis pour générer une fiche produit."},)
 
-    profile_code: Mapped[str] = mapped_column(String, index=True)
     famille_code: Mapped[str] = mapped_column(String, index=True)
     sous_famille_code: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
-    channel_code: Mapped[str] = mapped_column(String, index=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     requirements_json: Mapped[Any] = mapped_column(JSON)
 
@@ -285,14 +280,9 @@ class TechnicalFactCandidate(BaseModel):
     extractor_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     extraction_method: Mapped[ExtractionMethod | None] = mapped_column(nullable=True)
     validation_status: Mapped[StatutTechnicalFactCandidate] = mapped_column(
-        default=StatutTechnicalFactCandidate.NEEDS_REVIEW
+        default=StatutTechnicalFactCandidate.EXTRACTED
     )
-    review_required: Mapped[bool] = mapped_column(Boolean, default=False)
-    review_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
-    source_evidence_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     source_page: Mapped[int | None] = mapped_column(nullable=True)
-    source_bbox_json: Mapped[Any | None] = mapped_column(JSON, nullable=True)
-    raw_entity_json: Mapped[Any | None] = mapped_column(JSON, nullable=True)
 
     ingestion_run = relationship("DocumentIngestionRun", back_populates="technical_fact_candidates")
     source = relationship("DocumentSource", back_populates="technical_fact_candidates")
