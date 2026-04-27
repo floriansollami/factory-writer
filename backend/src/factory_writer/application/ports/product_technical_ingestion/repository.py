@@ -110,12 +110,10 @@ class CommercialSignalSnapshotSelection:
 
 
 @dataclass(frozen=True)
-class GenerationReadinessProfileSnapshot:
+class ProductSheetRequirementProfileSnapshot:
     id: uuid.UUID
-    profile_code: str
     famille_code: str
     sous_famille_code: str | None
-    channel_code: str
     requirements_json: Any
 
 
@@ -153,12 +151,7 @@ class TechnicalFactCandidateInput:
     unit: str | None
     extractor_confidence: float | None
     validation_status: StatutTechnicalFactCandidate
-    review_required: bool
-    review_reason: str | None
-    source_evidence_text: str | None
     source_page: int | None
-    source_bbox_json: Any | None
-    raw_entity_json: Any | None
 
 
 @dataclass(frozen=True)
@@ -240,12 +233,11 @@ class ProductTechnicalRepositoryPort(Protocol):
         product: ProductSnapshot,
     ) -> CommercialSignalSnapshotSelection: ...
 
-    async def load_generation_readiness_profile(
+    async def load_product_sheet_requirement_profile(
         self,
         *,
         product: ProductSnapshot,
-        channel_code: str = "product_sheet",
-    ) -> GenerationReadinessProfileSnapshot: ...
+    ) -> ProductSheetRequirementProfileSnapshot: ...
 
     async def load_active_style_pack(self) -> StylePackRuntimeSnapshot: ...
 

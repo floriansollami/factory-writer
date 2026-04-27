@@ -228,18 +228,21 @@ class TechnicalDossierActivities:
             candidate_count=len(payload.candidates),
             document_types=payload.document_types,
         )
+
         result = await self._service.validate_technical_facts(
             product=_to_app_product_ref(payload.product),
             candidates=tuple(_to_app_candidate(candidate) for candidate in payload.candidates),
             document_types=payload.document_types,
             source_document_types=payload.source_document_types,
         )
+
         logger.info(
             "Technical dossier | deterministic validation completed",
             candidate_count=len(result.candidates),
             review_case_count=len(result.review_cases),
             promoted_fact_count=len(result.promoted_facts),
         )
+
         return ValidateTechnicalFactsResult(
             candidates=tuple(_to_temporal_candidate(candidate) for candidate in result.candidates),
             review_cases=tuple(_to_temporal_review_case(case) for case in result.review_cases),
@@ -400,12 +403,7 @@ def _to_app_candidate(
         unit=candidate.unit,
         extractor_confidence=candidate.extractor_confidence,
         validation_status=candidate.validation_status,
-        review_required=candidate.review_required,
-        review_reason=candidate.review_reason,
-        source_evidence_text=candidate.source_evidence_text,
         source_page=candidate.source_page,
-        source_bbox_json=candidate.source_bbox_json,
-        raw_entity_json=candidate.raw_entity_json,
     )
 
 
@@ -420,12 +418,7 @@ def _to_temporal_candidate(
         unit=candidate.unit,
         extractor_confidence=candidate.extractor_confidence,
         validation_status=candidate.validation_status,
-        review_required=candidate.review_required,
-        review_reason=candidate.review_reason,
-        source_evidence_text=candidate.source_evidence_text,
         source_page=candidate.source_page,
-        source_bbox_json=candidate.source_bbox_json,
-        raw_entity_json=candidate.raw_entity_json,
     )
 
 

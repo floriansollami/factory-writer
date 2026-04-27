@@ -212,16 +212,15 @@ def test_classifier_uses_online_timeout() -> None:
     assert list(request.field_mask.paths) == ["entities", "pages.page_number"]
 
 
-def test_extractor_preserves_entity_field_path_without_changing_leaf_field_name() -> None:
-    child = documentai.Document.Entity(
-        type_="dimension_width_cm",
-        mention_text="220 cm",
+def test_extractor_maps_flat_entities() -> None:
+    document = documentai.Document(
+        entities=[
+            documentai.Document.Entity(
+                type_="dimension_width",
+                mention_text="220 cm",
+            )
+        ]
     )
-    parent = documentai.Document.Entity(
-        type_="plateau",
-        properties=[child],
-    )
-    document = documentai.Document(entities=[parent])
     fake_client = _FakeDocumentProcessorClient(_FakeProcessResponse(document=document))
     client = DocumentAIClient(
         Settings(
@@ -247,13 +246,8 @@ def test_extractor_preserves_entity_field_path_without_changing_leaf_field_name(
         )
     )
 
-    width_entity = next(entity for entity in result.entities if entity.raw_value == "220 cm")
-    assert width_entity.field_name == "dimension_width_cm"
-    assert width_entity.raw_entity_json["fieldPath"] == "plateau.dimension_width_cm"
-    assert width_entity.raw_entity_json["fieldPathSegments"] == [
-        "plateau",
-        "dimension_width_cm",
-    ]
+    assert result.entities[0].field_name == "dimension_width"
+    assert result.entities[0].raw_value == "220 cm"
     assert fake_client.requests[0].name == (
         "projects/factory-writer-test/locations/eu/processors/51d79fcf170d4db5"
     )

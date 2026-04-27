@@ -70,7 +70,7 @@ class ExtractionMethod(enum.StrEnum):
 
 
 class StatutTechnicalFactCandidate(enum.StrEnum):
-    AUTO_VALIDATED = "AUTO_VALIDATED"
+    EXTRACTED = "EXTRACTED"
     NEEDS_REVIEW = "NEEDS_REVIEW"
     REJECTED = "REJECTED"
     PROMOTED = "PROMOTED"

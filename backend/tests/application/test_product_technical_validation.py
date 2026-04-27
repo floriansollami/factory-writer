@@ -17,18 +17,31 @@ from factory_writer.application.ports.product_technical_ingestion import (
     TechnicalExtractorRoute,
     TechnicalFactCandidateInput,
 )
+from factory_writer.application.services.product_sheet_requirement_profile import (
+    ProductSheetRequirement as _ReadinessRequirement,
+)
+from factory_writer.application.services.product_sheet_requirement_profile import (
+    ProductSheetRequirementProfile as _ProductSheetRequirementProfile,
+)
+from factory_writer.application.services.product_technical_ingestion_mappers import (
+    _readiness_waiting_status,
+)
 from factory_writer.application.services.product_technical_ingestion_service import (
     ProductTechnicalIngestionService,
-    _classification_review_cases,
-    _entity_to_candidate_input,
-    _GenerationReadinessProfile,
-    _readiness_waiting_status,
-    _ReadinessRequirement,
+)
+from factory_writer.application.services.technical_classification_validation import (
+    classification_review_cases as _classification_review_cases,
+)
+from factory_writer.application.services.technical_fact_normalization import (
+    entity_to_raw_candidate_input as _entity_to_raw_candidate_input,
+)
+from factory_writer.application.services.technical_fact_validation import (
     _validate_technical_candidates,
 )
 from factory_writer.core.config import GCPSettings, Settings
 from factory_writer.domain.document_ingestion_types import (
     CurrentStep,
+    StatutTechnicalFactCandidate,
     TechnicalReviewCaseType,
     TechnicalReviewResolutionAction,
 )
@@ -54,7 +67,7 @@ def test_validate_technical_candidates_promotes_complete_sourced_facts() -> None
     result = _validate_technical_candidates(
         candidates,
         low_confidence_threshold=0.75,
-        profile=_readiness_profile(),
+        profile=_requirement_profile(),
         document_types=("TECHNICAL_SHEET", "ASSEMBLY_NOTICE"),
     )
 
@@ -88,7 +101,7 @@ def test_validate_technical_candidates_blocks_missing_required_fact() -> None:
     result = _validate_technical_candidates(
         candidates,
         low_confidence_threshold=0.75,
-        profile=_readiness_profile(),
+        profile=_requirement_profile(),
         document_types=("TECHNICAL_SHEET",),
     )
 
@@ -121,7 +134,7 @@ def test_validate_technical_candidates_blocks_contradiction() -> None:
     result = _validate_technical_candidates(
         candidates,
         low_confidence_threshold=0.75,
-        profile=_readiness_profile(),
+        profile=_requirement_profile(),
         document_types=("TECHNICAL_SHEET",),
     )
 
@@ -150,7 +163,7 @@ def test_validate_technical_candidates_canonicalizes_equivalent_dimensions() -> 
     result = _validate_technical_candidates(
         candidates,
         low_confidence_threshold=0.75,
-        profile=_readiness_profile(),
+        profile=_requirement_profile(),
         document_types=("TECHNICAL_SHEET",),
     )
 
@@ -163,13 +176,85 @@ def test_validate_technical_candidates_canonicalizes_equivalent_dimensions() -> 
     )
 
 
-def test_validate_technical_candidates_promotes_optional_multiple_values() -> None:
+def test_validate_technical_candidates_keeps_usage_capacity_source_text() -> None:
     source_id = uuid.uuid4()
-    profile = _GenerationReadinessProfile(
-        profile_code="test_profile",
+    profile = _ProductSheetRequirementProfile(
+        id=uuid.uuid4(),
         famille_code="mobilier_jardin",
         sous_famille_code="table_repas_exterieur",
-        channel_code="product_sheet",
+        requirements=(
+            _requirement(
+                "usage_capacity",
+                "REQUIRED",
+                min_confidence=0.80,
+                bounds_min=2,
+                bounds_max=14,
+                control_type="NUMBER",
+            ),
+        ),
+    )
+    candidates = [
+        _candidate(source_id, "usage_capacity", "8 couverts"),
+        _candidate(source_id, "usage_capacity", "8 places", confidence=0.90),
+    ]
+
+    result = _validate_technical_candidates(
+        candidates,
+        low_confidence_threshold=0.75,
+        profile=profile,
+        document_types=("TECHNICAL_SHEET",),
+    )
+
+    assert result.review_cases == []
+    assert len(result.promoted_facts) == 1
+    assert result.promoted_facts[0].value == "8 couverts"
+    assert result.generation_readiness["field_checks"][0]["selected_values"] == ["8 couverts"]
+
+
+def test_validate_technical_candidates_blocks_usage_capacity_numeric_conflict() -> None:
+    source_id = uuid.uuid4()
+    profile = _ProductSheetRequirementProfile(
+        id=uuid.uuid4(),
+        famille_code="mobilier_jardin",
+        sous_famille_code="table_repas_exterieur",
+        requirements=(
+            _requirement(
+                "usage_capacity",
+                "REQUIRED",
+                min_confidence=0.80,
+                bounds_min=2,
+                bounds_max=14,
+                control_type="NUMBER",
+            ),
+        ),
+    )
+    candidates = [
+        _candidate(source_id, "usage_capacity", "8 couverts"),
+        _candidate(source_id, "usage_capacity", "10 places", confidence=0.90),
+    ]
+
+    result = _validate_technical_candidates(
+        candidates,
+        low_confidence_threshold=0.75,
+        profile=profile,
+        document_types=("TECHNICAL_SHEET",),
+    )
+
+    assert any(
+        case.case_type == TechnicalReviewCaseType.CONTRADICTION
+        and case.field_name == "usage_capacity"
+        and case.detected_value == "10 places, 8 couverts"
+        for case in result.review_cases
+    )
+    assert result.promoted_facts == []
+
+
+def test_validate_technical_candidates_promotes_optional_multiple_values() -> None:
+    source_id = uuid.uuid4()
+    profile = _ProductSheetRequirementProfile(
+        id=uuid.uuid4(),
+        famille_code="mobilier_jardin",
+        sous_famille_code="table_repas_exterieur",
         requirements=(
             _requirement(
                 "feature_or_accessory",
@@ -199,6 +284,47 @@ def test_validate_technical_candidates_promotes_optional_multiple_values() -> No
     ]
 
 
+def test_validate_technical_candidates_ignores_low_confidence_optional_value() -> None:
+    source_id = uuid.uuid4()
+    profile = _ProductSheetRequirementProfile(
+        id=uuid.uuid4(),
+        famille_code="mobilier_jardin",
+        sous_famille_code="table_repas_exterieur",
+        requirements=(
+            _requirement(
+                "certification_claim_type",
+                "OPTIONAL",
+                cardinality="MULTIPLE",
+                selection_policy="KEEP_ALL_VALID",
+                min_confidence=0.80,
+            ),
+        ),
+    )
+    candidates = [
+        _candidate(
+            source_id,
+            "certification_claim_type",
+            "FSC Mix Credit sur composants teck du plateau",
+            confidence=0.57,
+        ),
+    ]
+
+    result = _validate_technical_candidates(
+        candidates,
+        low_confidence_threshold=0.75,
+        profile=profile,
+        document_types=("MATERIAL_SPECIFICATION",),
+    )
+
+    assert result.review_cases == []
+    assert result.promoted_facts == []
+    assert result.generation_readiness["field_checks"][0]["status"] == "SKIPPED"
+    assert (
+        result.generation_readiness["field_checks"][0]["blocking_reason"]
+        == "IGNORED_LOW_CONFIDENCE"
+    )
+
+
 def test_validate_technical_candidates_blocks_low_confidence_fact() -> None:
     source_id = uuid.uuid4()
     candidates = [
@@ -215,7 +341,7 @@ def test_validate_technical_candidates_blocks_low_confidence_fact() -> None:
     result = _validate_technical_candidates(
         candidates,
         low_confidence_threshold=0.75,
-        profile=_readiness_profile(),
+        profile=_requirement_profile(),
         document_types=("TECHNICAL_SHEET",),
     )
 
@@ -508,24 +634,16 @@ async def test_extract_technical_fact_candidates_trusts_extractor_labels() -> No
             TechnicalDocumentEntity(
                 field_name="dimension_width",
                 raw_value="220 cm",
-                normalized_value="220 cm",
-                unit=None,
                 confidence=0.97,
-                evidence_text="Largeur: 220 cm",
                 page=1,
                 bbox_json={"vertices": [{"x": 0.1, "y": 0.2}]},
-                raw_entity_json={"type": "dimension_width", "mentionText": "220 cm"},
             ),
             TechnicalDocumentEntity(
                 field_name="unknown_field",
                 raw_value="ignored",
-                normalized_value="ignored",
-                unit=None,
                 confidence=0.99,
-                evidence_text="ignored",
                 page=1,
                 bbox_json=None,
-                raw_entity_json={"type": "unknown_field"},
             ),
         ]
     )
@@ -572,10 +690,12 @@ async def test_extract_technical_fact_candidates_trusts_extractor_labels() -> No
     ]
     assert len(result.candidates) == 2
     assert result.candidates[0].field_name == "dimension_width"
-    assert result.candidates[0].normalized_value == "220"
-    assert result.candidates[0].unit == "cm"
+    assert result.candidates[0].normalized_value is None
+    assert result.candidates[0].unit is None
+    assert result.candidates[0].validation_status == StatutTechnicalFactCandidate.EXTRACTED
     assert result.candidates[1].field_name == "unknown_field"
-    assert result.candidates[1].normalized_value == "ignored"
+    assert result.candidates[1].normalized_value is None
+    assert result.candidates[1].validation_status == StatutTechnicalFactCandidate.EXTRACTED
     assert result.extraction_steps_json["total_elapsed_seconds"] >= 0
     assert [step["step"] for step in result.extraction_steps_json["steps"]] == [
         "classification",
@@ -590,70 +710,49 @@ async def test_extract_technical_fact_candidates_trusts_extractor_labels() -> No
     ]
 
 
-@pytest.mark.anyio
-async def test_extract_technical_fact_candidates_uses_dimension_set_unit_context() -> None:
-    run_id = uuid.uuid4()
+def test_validate_technical_candidates_uses_dimension_set_unit_context() -> None:
     source_id = uuid.uuid4()
-    repository = _ExtractionRepositoryStub()
-    document_processor = _DocumentProcessorStub(
-        entities=[
+    candidates = [
+        _entity_to_raw_candidate_input(
+            source_id,
             TechnicalDocumentEntity(
                 field_name="dimension_set_raw",
                 raw_value="Dimensions L/P/H (mm) : 2 200 / 950 / 740",
-                normalized_value=None,
-                unit=None,
                 confidence=0.98,
-                evidence_text="Dimensions L/P/H (mm) : 2 200 / 950 / 740",
                 page=1,
                 bbox_json=None,
-                raw_entity_json={"type": "dimension_set_raw"},
             ),
+        ),
+        _entity_to_raw_candidate_input(
+            source_id,
             TechnicalDocumentEntity(
                 field_name="dimension_width",
                 raw_value="2 200",
-                normalized_value=None,
-                unit=None,
                 confidence=0.97,
-                evidence_text="Dimensions L/P/H (mm) : 2 200 / 950 / 740",
                 page=1,
                 bbox_json=None,
-                raw_entity_json={"type": "dimension_width"},
             ),
-        ]
-    )
-    service = ProductTechnicalIngestionService(
-        settings=Settings(
-            gcp=GCPSettings(
-                document_ai_technical_sheet_extractor_processor_id="51d79fcf170d4db5",
-            )
         ),
-        repository=cast(Any, repository),
-        document_processor=cast(Any, document_processor),
+    ]
+    profile = _ProductSheetRequirementProfile(
+        id=uuid.uuid4(),
+        famille_code="mobilier_jardin",
+        sous_famille_code="table_repas_exterieur",
+        requirements=(_requirement("dimension_width", "REQUIRED", unit="cm", min_confidence=0.90),),
     )
 
-    result = await service.extract_technical_fact_candidates(
-        ingestion_run_id=str(run_id),
-        sources=(
-            TechnicalDocumentSourceReference(
-                document_source_id=str(source_id),
-                storage_uri="gs://bucket/source.pdf",
-                mime_type="application/pdf",
-            ),
-        ),
-        classifications=(
-            _classification_payload(
-                source_id=source_id,
-                document_type="TECHNICAL_SHEET",
-                confidence=0.99,
-            ),
-        ),
+    result = _validate_technical_candidates(
+        candidates,
+        low_confidence_threshold=0.75,
+        profile=profile,
+        document_types=("TECHNICAL_SHEET",),
+        source_document_types={str(source_id): "TECHNICAL_SHEET"},
     )
 
-    width = next(
-        candidate for candidate in result.candidates if candidate.field_name == "dimension_width"
-    )
-    assert width.normalized_value == "220"
-    assert width.unit == "cm"
+    assert result.review_cases == []
+    assert result.promoted_facts[0].field_name == "dimension_width"
+    assert result.promoted_facts[0].value == "220"
+    assert result.promoted_facts[0].unit == "cm"
 
 
 def test_readiness_waiting_status_prioritizes_technical_facts() -> None:
@@ -678,59 +777,61 @@ def _candidate(
     *,
     confidence: float = 0.95,
 ) -> TechnicalFactCandidateInput:
-    return _entity_to_candidate_input(
+    return _entity_to_raw_candidate_input(
         source_id,
         TechnicalDocumentEntity(
             field_name=field_name,
             raw_value=raw_value,
-            normalized_value=raw_value,
-            unit=None,
             confidence=confidence,
-            evidence_text=raw_value,
             page=1,
             bbox_json=None,
-            raw_entity_json={"type": field_name, "mentionText": raw_value},
         ),
     )
 
 
-def _readiness_profile() -> _GenerationReadinessProfile:
+def _requirement_profile() -> _ProductSheetRequirementProfile:
     requirements = (
-        _requirement("sku", "REQUIRED", min_confidence=0.75),
-        _requirement("product_name", "REQUIRED", min_confidence=0.75),
-        _requirement("dimension_width", "REQUIRED", unit="cm", min_confidence=0.85),
-        _requirement("dimension_depth", "REQUIRED", unit="cm", min_confidence=0.85),
-        _requirement("dimension_height", "REQUIRED", unit="cm", min_confidence=0.85),
-        _requirement("material_primary", "REQUIRED", min_confidence=0.85),
-        _requirement("finish_primary", "REQUIRED", min_confidence=0.75),
-        _requirement("usage_capacity", "REQUIRED", min_confidence=0.75),
+        _requirement("sku", "REQUIRED", min_confidence=0.85),
+        _requirement("product_name", "REQUIRED", min_confidence=0.85),
+        _requirement("dimension_width", "REQUIRED", unit="cm", min_confidence=0.90),
+        _requirement("dimension_depth", "REQUIRED", unit="cm", min_confidence=0.90),
+        _requirement("dimension_height", "REQUIRED", unit="cm", min_confidence=0.90),
+        _requirement("material_primary", "REQUIRED", min_confidence=0.90),
+        _requirement("finish_primary", "REQUIRED", min_confidence=0.80),
+        _requirement(
+            "usage_capacity",
+            "REQUIRED",
+            min_confidence=0.80,
+            bounds_min=2,
+            bounds_max=14,
+            control_type="NUMBER",
+        ),
         _requirement(
             "assembly_constraints",
             "CONDITIONAL",
             condition="ASSEMBLY_NOTICE_PRESENT",
-            min_confidence=0.75,
+            min_confidence=0.80,
         ),
         _requirement(
             "required_tool",
             "CONDITIONAL",
             condition="ASSEMBLY_NOTICE_PRESENT",
-            min_confidence=0.75,
+            min_confidence=0.80,
         ),
         _requirement(
             "assembly_people_required",
             "CONDITIONAL",
             condition="ASSEMBLY_NOTICE_PRESENT",
-            min_confidence=0.75,
+            min_confidence=0.80,
             bounds_min=1,
             bounds_max=4,
         ),
         _requirement("eco_certifications", "OPTIONAL", missing_action="DO_NOT_MENTION"),
     )
-    return _GenerationReadinessProfile(
-        profile_code="test_profile",
+    return _ProductSheetRequirementProfile(
+        id=uuid.uuid4(),
         famille_code="mobilier_jardin",
         sous_famille_code="table_repas_exterieur",
-        channel_code="product_sheet",
         requirements=requirements,
     )
 
@@ -747,6 +848,7 @@ def _requirement(
     missing_action: str | None = None,
     cardinality: str = "SINGLE",
     selection_policy: str = "CANONICAL_SINGLE",
+    control_type: str | None = None,
 ) -> _ReadinessRequirement:
     return _ReadinessRequirement(
         field_name=field_name,
@@ -763,6 +865,7 @@ def _requirement(
         selection_policy=selection_policy,
         conflict_policy="BLOCK_ON_CREDIBLE_CONFLICT",
         source_priority=(),
+        control_type=control_type,
     )
 
 

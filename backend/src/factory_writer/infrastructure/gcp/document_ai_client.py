@@ -287,41 +287,77 @@ class DocumentAIClient:
             raw_response_json=_proto_to_dict(response),
         )
 
-        # {
-        #     "processor_resource_name": "projects/623736074911/locations/eu/processors/51d79fcf170d4db5",
-        #     "processor_version": null,
-        #     "latency_ms": 1842,
-        #     "request_config_snapshot": {
-        #         "mode": "online",
-        #         "processor_kind": "custom_extractor_foundation_model",
-        #         "extractor_document_type": "TECHNICAL_SHEET",
-        #         "extractor_processor_name": "fw-technical-sheet-extractor",
-        #         "processor_resource_name": "projects/623736074911/locations/eu/processors/51d79fcf170d4db5",
-        #         "processor_version": null,
-        #         "gcs_uri": "gs://factory-writer-poc-1776097019-brand-styles/sources/technical-dossiers/product_id=.../document_source_id=.../AXOLOTL_RIVAGE_220_FICHE_ATELIER.pdf",
-        #         "mime_type": "application/pdf",
-        #         "document_type": "TECHNICAL_SHEET",
-        #         "skip_human_review": true,
-        #     },
+        #      {
+        #   "document": {
         #     "entities": [
-        #         {
-        #             "field_name": "sku",
-        #             "raw_value": "AX-TB-RIV-220-TKGR",
-        #             "normalized_value": "AX-TB-RIV-220-TKGR",
-        #             "unit": null,
-        #             "confidence": 0.9971,
-        #             "evidence_text": "AX-TB-RIV-220-TKGR",
-        #             "page": 1,
-        #             "bbox_json": {
-        #                 "normalizedVertices": [
-        #                     {"x": 0.12, "y": 0.08},
-        #                     {"x": 0.34, "y": 0.08},
-        #                     {"x": 0.34, "y": 0.11},
-        #                     {"x": 0.12, "y": 0.11},
-        #                 ]
-        #             },
+        #       {
+        #         "textAnchor": {
+        #           "textSegments": [
+        #             {
+        #               "startIndex": "466",
+        #               "endIndex": "483"
+        #             }
+        #           ],
+        #           "content": ""
         #         },
+        #         "type": "assembly_site",
+        #         "mentionText": "Jepara, Indonésie",
+        #         "confidence": 0.9999001,
+        #         "pageAnchor": {
+        #           "pageRefs": [
+        #             {
+        #               "boundingPoly": {
+        #                 "normalizedVertices": [
+        #                   {
+        #                     "x": 0.28732896,
+        #                     "y": 0.3480454
+        #                   },
+        #                   {
+        #                     "x": 0.40273646,
+        #                     "y": 0.3480454
+        #                   },
+        #                   {
+        #                     "x": 0.40273646,
+        #                     "y": 0.3577133
+        #                   },
+        #                   {
+        #                     "x": 0.28732896,
+        #                     "y": 0.3577133
+        #                   }
+        #                 ],
+        #                 "vertices": []
+        #               },
+        #               "page": "0",
+        #               "layoutType": "LAYOUT_TYPE_UNSPECIFIED",
+        #               "layoutId": "",
+        #               "confidence": 0.0
+        #             }
+        #           ]
+        #         },
+        #         "id": "0",
+        #         "mentionId": "",
+        #         "properties": [],
+        #         "redacted": false,
+        #         "method": "METHOD_UNSPECIFIED"
+        #       },
         #     ],
+        #     "docid": "",
+        #     "mimeType": "",
+        #     "text": "",
+        #     "textStyles": [],
+        #     "pages": [],
+        #     "entityRelations": [],
+        #     "textChanges": [],
+        #     "revisions": [],
+        #     "blobAssets": [],
+        #     "entitiesRevisions": [],
+        #     "entitiesRevisionId": ""
+        #   },
+        #   "humanReviewStatus": {
+        #     "state": "SKIPPED",
+        #     "stateMessage": "",
+        #     "humanReviewOperation": ""
+        #   }
         # }
 
         return TechnicalDocumentExtractionResult(
@@ -341,10 +377,7 @@ class DocumentAIClient:
                 "skip_human_review": True,
                 "field_mask": ["entities"],
             },
-            entities=[
-                _entity_to_technical_fact(entity, field_path)
-                for field_path, entity in _iter_entities(document.entities)
-            ],
+            entities=[_entity_to_technical_fact(entity) for entity in document.entities],
         )
 
     def _processor_name(self) -> str:
@@ -482,45 +515,15 @@ def _map_document_type(raw_label: str) -> str:
 
 def _entity_to_technical_fact(
     entity: documentai.Document.Entity,
-    field_path: str,
 ) -> TechnicalDocumentEntity:
-    raw_entity_json = _proto_to_dict(entity)
-    if field_path:
-        raw_entity_json["fieldPath"] = field_path
-        raw_entity_json["fieldPathSegments"] = field_path.split(".")
     page, bbox_json = _extract_page_anchor(entity)
-    normalized_value = _extract_normalized_value(entity)
     return TechnicalDocumentEntity(
         field_name=_normalize_text(getattr(entity, "type_", None)),
         raw_value=_normalize_text(getattr(entity, "mention_text", None)) or None,
-        normalized_value=normalized_value,
-        unit=_extract_unit(raw_entity_json),
         confidence=_to_float(getattr(entity, "confidence", None)),
-        evidence_text=_normalize_text(getattr(entity, "mention_text", None)) or None,
         page=page,
         bbox_json=bbox_json,
-        raw_entity_json=raw_entity_json,
     )
-
-
-def _iter_entities(
-    entities: Any,
-    parent_path: str = "",
-) -> list[tuple[str, documentai.Document.Entity]]:
-    flattened: list[tuple[str, documentai.Document.Entity]] = []
-    for entity in entities:
-        type_str = _normalize_text(getattr(entity, "type_", ""))
-        current_path = (
-            f"{parent_path}.{type_str}" if parent_path and type_str else type_str or parent_path
-        )
-        flattened.append((current_path, entity))
-        flattened.extend(
-            _iter_entities(
-                list(getattr(entity, "properties", []) or []),
-                parent_path=current_path,
-            )
-        )
-    return flattened
 
 
 def _extract_page_anchor(
@@ -538,26 +541,6 @@ def _extract_page_anchor(
     if bbox is None:
         return page_number, None
     return page_number, _proto_to_dict(bbox)
-
-
-def _extract_normalized_value(entity: documentai.Document.Entity) -> str | None:
-    normalized = getattr(entity, "normalized_value", None)
-    if normalized is None:
-        return _normalize_text(getattr(entity, "mention_text", None)) or None
-
-    text_value = _normalize_text(getattr(normalized, "text", None))
-    if text_value:
-        return text_value
-    return _normalize_text(getattr(entity, "mention_text", None)) or None
-
-
-def _extract_unit(raw_entity_json: dict[str, Any]) -> str | None:
-    normalized = raw_entity_json.get("normalizedValue")
-    if isinstance(normalized, dict):
-        unit = normalized.get("unit") or normalized.get("currencyCode")
-        if isinstance(unit, str) and unit.strip():
-            return unit.strip()
-    return None
 
 
 def _proto_to_dict(value: object) -> dict[str, Any]:

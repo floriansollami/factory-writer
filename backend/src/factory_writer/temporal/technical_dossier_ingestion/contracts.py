@@ -92,12 +92,7 @@ class TechnicalFactCandidatePayload(TemporalPayloadModel):
     unit: str | None = None
     extractor_confidence: float | None = None
     validation_status: str
-    review_required: bool
-    review_reason: str | None = None
-    source_evidence_text: str | None = None
     source_page: int | None = None
-    source_bbox_json: Any | None = None
-    raw_entity_json: Any | None = None
 
 
 class ExtractTechnicalFactCandidatesInput(TemporalPayloadModel):

@@ -71,16 +71,11 @@ class TechnicalFactCandidatePayload:
     source_id: str
     field_name: str
     validation_status: str
-    review_required: bool
     raw_value: str | None = None
     normalized_value: str | None = None
     unit: str | None = None
     extractor_confidence: float | None = None
-    review_reason: str | None = None
-    source_evidence_text: str | None = None
     source_page: int | None = None
-    source_bbox_json: Any | None = None
-    raw_entity_json: Any | None = None
 
 
 @dataclass(frozen=True)

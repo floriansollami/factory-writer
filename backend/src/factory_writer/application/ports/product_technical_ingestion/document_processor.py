@@ -29,13 +29,9 @@ class TechnicalDocumentClassificationResult:
 class TechnicalDocumentEntity:
     field_name: str
     raw_value: str | None
-    normalized_value: str | None
-    unit: str | None
     confidence: float | None
-    evidence_text: str | None
     page: int | None
     bbox_json: dict[str, Any] | None
-    raw_entity_json: dict[str, Any]
 
 
 @dataclass(frozen=True)
