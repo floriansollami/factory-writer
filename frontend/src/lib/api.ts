@@ -3,7 +3,6 @@ import {
   productOverviewSchema,
   productTaxonomiesResponseSchema,
   productsListResponseSchema,
-  replaceTechnicalSourcesLotResponseSchema,
   resolveTechnicalReviewCaseResponseSchema,
   startTechnicalIngestionResponseSchema,
   uploadTechnicalSourcesResponseSchema,
@@ -148,7 +147,7 @@ export async function replaceTechnicalSourcesLot(
     );
   }
 
-  return replaceTechnicalSourcesLotResponseSchema.parse(await response.json());
+  return startTechnicalIngestionResponseSchema.parse(await response.json());
 }
 
 export async function startTechnicalIngestion(

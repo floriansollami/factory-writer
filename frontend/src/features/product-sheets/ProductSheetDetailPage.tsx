@@ -12,9 +12,8 @@ import {
   ShieldCheck,
   Sparkles,
   UploadCloud,
-  X,
 } from "lucide-react";
-import { type ReactNode, useCallback, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 
 import { AxolotlLogo } from "@/components/brand/AxolotlLogo";
 import { Badge } from "@/components/ui/badge";
@@ -22,14 +21,18 @@ import { Button } from "@/components/ui/button";
 import { Card, CardTitle } from "@/components/ui/card";
 import { ProductSheetFlowProgress } from "@/features/product-sheets/ProductSheetFlowProgress";
 import {
+  CompactProviderMetadata,
+  type ProductStepMetadataField,
+} from "@/features/product-sheets/ProductStepMetadata";
+import {
+  TechnicalExtractionResultsDisclosure,
+  technicalFactLabelDescription,
+} from "@/features/product-sheets/TechnicalExtractionResultsDisclosure";
+import {
   ResolveTechnicalReviewCaseDialog,
   TechnicalReviewCasesPanel,
 } from "@/features/product-sheets/TechnicalReviewCasesPanel";
 import { TechnicalSourcesUploadDialog } from "@/features/product-sheets/TechnicalSourcesUploadDialog";
-import {
-  loadTechnicalSourcePdf,
-  loadTechnicalSourcePdfByFileName,
-} from "@/features/product-sheets/technicalSourcePdfStore";
 import type {
   TechnicalFactCandidate,
   TechnicalClassification,
@@ -44,10 +47,8 @@ import {
   formatNullableCode,
   isProductAnalysisActive,
   resolveProductFlowStep,
-  technicalFactFieldLabel,
   technicalDocumentTypeLabel,
 } from "@/features/product-sheets/productSheetUtils";
-import { SourcePdfPreview } from "@/features/style-guide/SourcePdfDialog";
 import { getProductOverview, listProducts, startTechnicalIngestion } from "@/lib/api";
 import { formatAdminDateTime } from "@/lib/dateTime";
 import { cn } from "@/lib/utils";
@@ -106,7 +107,24 @@ export function ProductSheetDetailPage({
     productsData?.products.find((product) => product.id === productId) ?? null;
   const startMutation = useMutation({
     mutationFn: () => startTechnicalIngestion(productId),
-    onSuccess: async () => {
+    onSuccess: async (result) => {
+      queryClient.setQueryData<ProductOverview>(
+        ["product-overview", productId],
+        (previous) =>
+          previous
+            ? {
+                ...previous,
+                product: result.product,
+                run: result.run,
+                sources: result.sources,
+                technical_collection: {
+                  id: result.collection_id,
+                  kind: "TECHNICAL_DOSSIER",
+                  statut: "EN_COURS",
+                },
+              }
+            : previous,
+      );
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["products"] }),
         queryClient.invalidateQueries({ queryKey: ["product-overview", productId] }),
@@ -578,6 +596,7 @@ function TechnicalAnalysisDashboard({
                     : undefined
                 }
                 extractionSources={overview.sources}
+                factCandidates={overview.fact_candidates}
                 generationReadiness={
                   step.id === "deterministic-validation"
                     ? overview.generation_readiness
@@ -593,6 +612,7 @@ function TechnicalAnalysisDashboard({
                 }
                 hideStepMetadata={
                   step.id === "document-classification" ||
+                  step.id === "deterministic-validation" ||
                   (step.id === "fact-extraction" && overview.fact_candidates.length > 0)
                 }
                 onReplaceSources={
@@ -949,39 +969,6 @@ function TechnicalClassificationResultsDisclosure({
   );
 }
 
-function CompactProviderMetadata({ fields }: { fields: ProductStepMetadataField[] }) {
-  if (fields.length === 0) {
-    return null;
-  }
-
-  return (
-    <details className="group/technical-metadata mt-2">
-      <summary className="flex cursor-pointer list-none items-center gap-2 px-1 py-1 text-[0.68rem] font-bold uppercase tracking-[0.14em] text-[var(--color-muted)] transition-colors hover:text-[var(--color-forest)] [&::-webkit-details-marker]:hidden">
-        <span
-          aria-hidden="true"
-          className="size-0 border-y-[4px] border-l-[6px] border-y-transparent border-l-current transition-transform group-open/technical-metadata:rotate-90"
-        />
-        Détails techniques
-      </summary>
-      <dl className="mt-1 grid gap-2 rounded-2xl bg-white/55 px-3 py-2.5 text-xs">
-        {fields.map((field) => (
-          <div key={field.label} className="grid gap-0.5">
-            <dt className="text-[0.62rem] font-bold uppercase tracking-[0.14em] text-[var(--color-muted)]">
-              {field.label}
-            </dt>
-            <dd
-              className="break-words font-semibold leading-5 text-[var(--color-forest)]"
-              title={field.value}
-            >
-              {field.value}
-            </dd>
-          </div>
-        ))}
-      </dl>
-    </details>
-  );
-}
-
 function TechnicalClassificationResultItem({
   classification,
 }: {
@@ -1026,247 +1013,6 @@ function TechnicalClassificationResultItem({
   );
 }
 
-function TechnicalExtractionResultsDisclosure({
-  candidates,
-  metadata,
-  sources,
-}: {
-  candidates: TechnicalFactCandidate[];
-  metadata: ProductStepMetadataField[];
-  sources: TechnicalSource[];
-}) {
-  const [selectedCandidate, setSelectedCandidate] = useState<TechnicalFactCandidate | null>(
-    null,
-  );
-  const sourceById = new Map(sources.map((source) => [source.id, source]));
-  const candidateGroups = groupExtractionCandidatesBySource(candidates, sources);
-  const [selectedSourceId, setSelectedSourceId] = useState<string | null>(
-    candidateGroups[0]?.sourceId ?? null,
-  );
-  const selectedGroup =
-    candidateGroups.find((group) => group.sourceId === selectedSourceId) ??
-    candidateGroups[0] ??
-    null;
-  const selectedCandidates = selectedGroup?.candidates ?? [];
-  const occurrenceLabels = buildExtractionCandidateOccurrenceLabels(selectedCandidates);
-  const reviewRequiredCount = candidates.filter((candidate) => candidate.review_required).length;
-
-  return (
-    <>
-      <details className="group mt-3 w-full max-w-5xl">
-        <summary className="flex cursor-pointer list-none flex-wrap items-center gap-2 rounded-2xl bg-[var(--color-surface-raised)]/55 px-4 py-2.5 text-sm font-semibold text-[var(--color-forest)] transition hover:bg-[var(--color-sage-soft)]/55 [&::-webkit-details-marker]:hidden">
-          <span
-            aria-hidden="true"
-            className="size-0 border-y-[4px] border-l-[6px] border-y-transparent border-l-current transition-transform group-open:rotate-90"
-          />
-          Résultats d’extraction
-          {reviewRequiredCount > 0 ? (
-            <Badge tone="warning" className="ml-auto">
-              {reviewRequiredCount} à vérifier
-            </Badge>
-          ) : null}
-        </summary>
-
-        <div className="mt-3 rounded-[1.35rem] bg-[var(--color-surface-raised)]/35 p-2.5 shadow-[inset_0_0_0_1px_rgba(23,49,36,0.07)]">
-          <div className="grid gap-2 lg:grid-cols-[15rem_minmax(0,1fr)]">
-            <div className="rounded-2xl bg-[var(--color-ivory)] p-1.5">
-              <div className="grid gap-1.5" role="tablist" aria-label="PDFs extraits">
-                {candidateGroups.map((group, index) => {
-                  const isSelected = selectedGroup?.sourceId === group.sourceId;
-
-                  return (
-                    <button
-                      key={group.sourceId}
-                      type="button"
-                      role="tab"
-                      aria-selected={isSelected}
-                      className={cn(
-                        "flex min-w-0 items-center gap-3 rounded-[1.05rem] px-3 py-2.5 text-left transition",
-                        isSelected
-                          ? "bg-white text-[var(--color-forest)] shadow-[0_10px_24px_rgba(27,28,26,0.07)]"
-                          : "text-[var(--color-muted)] hover:bg-white/55 hover:text-[var(--color-ink)]",
-                      )}
-                      onClick={() => setSelectedSourceId(group.sourceId)}
-                    >
-                      <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-[var(--color-sage-soft)] text-[var(--color-forest)]">
-                        <FileCheck2 className="size-4" />
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block text-[0.68rem] font-bold uppercase tracking-[0.14em]">
-                          PDF {index + 1}
-                        </span>
-                        <span className="mt-0.5 block break-all text-[0.58rem] font-semibold leading-3 text-[var(--color-muted)]">
-                          {group.fileName}
-                        </span>
-                      </span>
-                      <Badge tone="neutral" className="shrink-0">
-                        {group.candidates.length}
-                      </Badge>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="overflow-hidden rounded-2xl bg-white/60 shadow-[inset_0_0_0_1px_rgba(23,49,36,0.07)]">
-              <div className="grid grid-cols-[minmax(14rem,0.85fr)_minmax(14rem,1fr)_5.5rem_6.5rem] gap-3 border-b border-black/5 px-3 py-2 text-[0.64rem] font-bold uppercase tracking-[0.14em] text-[var(--color-muted)] max-lg:hidden">
-                <span>Label</span>
-                <span>Valeur source</span>
-                <span>Score</span>
-                <span className="text-right">Preuve</span>
-              </div>
-
-              {selectedCandidates.map((candidate) => {
-                const source = sourceById.get(candidate.source_id) ?? null;
-                const proofText = extractionCandidateProofText(candidate);
-                const proofDisabled = source === null || proofText === null;
-                const occurrenceLabel = occurrenceLabels.get(candidate.id);
-                const labelMetadata = technicalFactLabelMetadata(candidate.field_name);
-                const labelDescription = technicalFactLabelDescription(
-                  candidate.field_name,
-                  source?.document_type,
-                );
-
-                return (
-                  <div
-                    key={candidate.id}
-                    className="grid grid-cols-[minmax(14rem,0.85fr)_minmax(14rem,1fr)_5.5rem_6.5rem] items-center gap-3 border-b border-black/5 bg-white/50 px-3 py-2.5 last:border-b-0 max-lg:grid-cols-[minmax(0,1fr)_auto] max-lg:gap-y-2"
-                  >
-                    <div className="min-w-0">
-                      <p
-                        className="min-w-0 cursor-help truncate text-sm font-semibold text-[var(--color-ink)]"
-                        title={labelDescription}
-                      >
-                        {candidate.field_name}
-                        {occurrenceLabel ? (
-                          <span className="ml-1 text-[0.68rem] font-bold text-[var(--color-muted)]">
-                            {occurrenceLabel}
-                          </span>
-                        ) : null}
-                      </p>
-                      <p className="mt-0.5 whitespace-nowrap text-[0.52rem] font-bold uppercase leading-3 tracking-[0.06em] text-[var(--color-muted)]">
-                        {labelMetadata.dataType} · {labelMetadata.method} ·{" "}
-                        {labelMetadata.occurrence}
-                      </p>
-                    </div>
-
-                    <p
-                      className="min-w-0 whitespace-normal break-words text-xs font-semibold leading-5 text-[var(--color-forest)] max-lg:col-start-1"
-                      title={extractionCandidateDisplayValue(candidate)}
-                    >
-                      <span className="mr-1 hidden text-[0.64rem] font-bold uppercase tracking-[0.14em] text-[var(--color-muted)] max-lg:inline">
-                        Valeur
-                      </span>
-                      {extractionCandidateDisplayValue(candidate)}
-                    </p>
-
-                    <p className="text-xs font-semibold text-[var(--color-ink)] max-lg:col-start-1">
-                      <span className="mr-1 hidden text-[0.64rem] font-bold uppercase tracking-[0.14em] text-[var(--color-muted)] max-lg:inline">
-                        Score
-                      </span>
-                      {formatGcpConfidence(candidate.extractor_confidence)}
-                    </p>
-
-                    <Button
-                      className="justify-self-end"
-                      size="sm"
-                      variant="secondary"
-                      disabled={proofDisabled}
-                      onClick={() => setSelectedCandidate(candidate)}
-                    >
-                      <FileText className="size-4" />
-                      Voir
-                    </Button>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          <CompactProviderMetadata fields={metadata} />
-        </div>
-      </details>
-
-      {selectedCandidate ? (
-        <TechnicalSourcePdfDialog
-          candidate={selectedCandidate}
-          onClose={() => setSelectedCandidate(null)}
-          source={sourceById.get(selectedCandidate.source_id) ?? null}
-        />
-      ) : null}
-    </>
-  );
-}
-
-function TechnicalSourcePdfDialog({
-  candidate,
-  onClose,
-  source,
-}: {
-  candidate: TechnicalFactCandidate;
-  onClose: () => void;
-  source: TechnicalSource | null;
-}) {
-  const proofText = extractionCandidateProofText(candidate) ?? "";
-  const fileName = source?.original_file_name ?? "PDF technique";
-  const sourceId = source?.id ?? null;
-  const loadPdf = useCallback(async () => {
-    if (sourceId === null) {
-      return null;
-    }
-
-    return (await loadTechnicalSourcePdf(sourceId)) ?? loadTechnicalSourcePdfByFileName(fileName);
-  }, [fileName, sourceId]);
-
-  return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-[rgba(23,49,36,0.26)] p-5 backdrop-blur-sm">
-      <div className="flex h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-[1.6rem] bg-[var(--color-ivory)] shadow-[0_28px_90px_rgba(27,28,26,0.22)]">
-        <div className="flex flex-wrap items-start justify-between gap-4 border-b border-black/5 px-6 py-4">
-          <div className="min-w-0">
-            <p className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--color-teak)]">
-              Preuve PDF
-            </p>
-            <h2 className="mt-1 truncate font-serif text-2xl font-semibold tracking-[-0.035em] text-[var(--color-ink)]">
-              {technicalFactFieldLabel(candidate.field_name)}
-            </h2>
-            <p className="mt-1 max-w-3xl truncate text-sm font-semibold text-[var(--color-muted)]">
-              {fileName} · {extractionCandidateDisplayValue(candidate)}
-            </p>
-          </div>
-          <Button type="button" variant="secondary" onClick={onClose}>
-            <X className="size-4" />
-            Fermer
-          </Button>
-        </div>
-
-        <div className="min-h-0 flex-1 p-4">
-          {source === null ? (
-            <div className="grid h-full place-items-center rounded-[1.25rem] bg-white/70 px-6 text-center">
-              <div>
-                <p className="font-serif text-2xl font-semibold tracking-[-0.04em] text-[var(--color-ink)]">
-                  Source introuvable
-                </p>
-                <p className="mt-3 text-sm leading-6 text-[var(--color-muted)]">
-                  Le document source n’est plus associé à ce fait extrait.
-                </p>
-              </div>
-            </div>
-          ) : (
-            <SourcePdfPreview
-              className="h-full"
-              excerpt={proofText}
-              fileName={fileName}
-              loadPdf={loadPdf}
-              pageEnd={candidate.source_page}
-              pageStart={candidate.source_page}
-            />
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function OnboardingStep({
   icon: Icon,
   title,
@@ -1302,7 +1048,6 @@ type ProductAnalysisStepId =
   | "deterministic-validation"
   | "technical-review"
   | "context";
-type ProductStepMetadataField = { label: string; value: string };
 
 type ProductAnalysisStep = {
   description: string;
@@ -1320,6 +1065,7 @@ function ProductAnalysisStepItem({
   elapsedTime,
   extractionResults,
   extractionSources = [],
+  factCandidates = [],
   generationReadiness,
   hideStepMetadata = false,
   onReplaceSources,
@@ -1332,6 +1078,7 @@ function ProductAnalysisStepItem({
   elapsedTime: string;
   extractionResults?: TechnicalFactCandidate[];
   extractionSources?: TechnicalSource[];
+  factCandidates?: TechnicalFactCandidate[];
   generationReadiness?: ProductOverview["generation_readiness"];
   hideStepMetadata?: boolean;
   onReplaceSources?: () => void;
@@ -1340,6 +1087,14 @@ function ProductAnalysisStepItem({
   validationReviewCases?: TechnicalReviewCase[];
 }) {
   const isRunning = step.status === "running";
+  const hasStepResults =
+    classificationResults !== undefined ||
+    extractionResults !== undefined ||
+    generationReadiness !== undefined;
+  const showStepEta =
+    step.eta !== undefined &&
+    !hasStepResults &&
+    (step.status === "running" || step.status === "pending");
 
   return (
     <li className="grid grid-cols-[42px_1fr] gap-4">
@@ -1375,9 +1130,11 @@ function ProductAnalysisStepItem({
         <p className="mt-1 text-sm leading-6 text-[var(--color-muted)]">{step.description}</p>
         {generationReadiness ? (
           <TechnicalValidationResultsDisclosure
+            factCandidates={factCandidates}
             generationReadiness={generationReadiness}
             productId={productId}
             reviewCases={validationReviewCases}
+            sources={extractionSources}
           />
         ) : null}
         {classificationResults ? (
@@ -1397,7 +1154,7 @@ function ProductAnalysisStepItem({
           />
         ) : null}
         {hideStepMetadata ? null : <StepMetadata fields={step.metadata} />}
-        {step.eta ? (
+        {showStepEta ? (
           <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs leading-5 text-[var(--color-muted)]">
             <span>{step.eta}</span>
             {isRunning ? (
@@ -1415,18 +1172,35 @@ function ProductAnalysisStepItem({
 }
 
 function TechnicalValidationResultsDisclosure({
+  factCandidates,
   generationReadiness,
   productId,
   reviewCases,
+  sources,
 }: {
+  factCandidates: TechnicalFactCandidate[];
   generationReadiness: NonNullable<ProductOverview["generation_readiness"]>;
   productId: string;
   reviewCases: TechnicalReviewCase[];
+  sources: TechnicalSource[];
 }) {
   const [selectedCase, setSelectedCase] = useState<TechnicalReviewCase | null>(null);
-  const checks = validationFieldChecks(generationReadiness);
-  const blockingCount = generationReadiness.blocking_count ?? 0;
-  const hasBlocking = blockingCount > 0;
+  const sourceById = new Map(sources.map((source) => [source.id, source]));
+  const checks = sortValidationChecksBySource(
+    validationFieldChecks(generationReadiness),
+    sourceById,
+    factCandidates,
+  );
+  const checkGroups = groupValidationChecksBySource(
+    checks,
+    sourceById,
+    factCandidates,
+    reviewCases,
+  );
+  const visibleBlockingCount = checks.filter(
+    (check) => check.status === "BLOCKED",
+  ).length;
+  const hasBlocking = visibleBlockingCount > 0;
   const [isOpen, setIsOpen] = useState(hasBlocking);
 
   useEffect(() => {
@@ -1452,69 +1226,108 @@ function TechnicalValidationResultsDisclosure({
             className="size-0 border-y-[4px] border-l-[6px] border-y-transparent border-l-current transition-transform group-open:rotate-90"
           />
           Résultats du contrôle
-          <Badge className="ml-auto" tone={hasBlocking ? "danger" : "success"}>
-            {hasBlocking ? `${blockingCount} à corriger` : "Prêt"}
-          </Badge>
         </summary>
 
-        <div className="mt-3 overflow-hidden rounded-[1.35rem] bg-white/60 shadow-[inset_0_0_0_1px_rgba(23,49,36,0.07)]">
-          <div className="grid grid-cols-[minmax(12rem,0.8fr)_minmax(14rem,1fr)_5.5rem_8rem_7rem] gap-3 border-b border-black/5 px-3 py-2 text-[0.64rem] font-bold uppercase tracking-[0.14em] text-[var(--color-muted)] max-xl:hidden">
-            <span>Champ</span>
-            <span>Valeur retenue / candidates</span>
-            <span>Score</span>
-            <span>Contrôle</span>
-            <span className="text-right">Action</span>
-          </div>
+        <div className="mt-3 space-y-3">
+          {checkGroups.map((group) => (
+            <details
+              key={group.key}
+              className="group/validation-section overflow-hidden rounded-[1.35rem] bg-white/60 shadow-[inset_0_0_0_1px_rgba(23,49,36,0.07)]"
+            >
+              <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-2 border-b border-black/5 bg-[var(--color-surface-raised)]/45 px-3 py-2 transition hover:bg-[var(--color-sage-soft)]/40 [&::-webkit-details-marker]:hidden">
+                <span className="flex min-w-0 items-center gap-2">
+                  <span
+                    aria-hidden="true"
+                    className="size-0 shrink-0 border-y-[4px] border-l-[6px] border-y-transparent border-l-current text-[var(--color-forest)] transition-transform group-open/validation-section:rotate-90"
+                  />
+                  <span
+                    className="truncate text-[0.68rem] font-bold uppercase tracking-[0.14em] text-[var(--color-forest)]"
+                    title={group.sourceTitle}
+                  >
+                    {group.label}
+                  </span>
+                </span>
+                <Badge tone={group.blockingCount > 0 ? "danger" : group.ignoredCount > 0 ? "warning" : "success"}>
+                  {group.blockingCount > 0
+                    ? `${group.blockingCount} à corriger`
+                    : group.ignoredCount > 0
+                      ? `${group.ignoredCount} ignoré${group.ignoredCount > 1 ? "s" : ""}`
+                      : `${group.checks.length} validé${group.checks.length > 1 ? "s" : ""}`}
+                </Badge>
+              </summary>
 
-          {checks.map((check) => {
-            const reviewCase = findReviewCaseForCheck(reviewCases, check);
-            const rowTone = validationCheckTone(check);
-            const valueLabel = validationCheckValueLabel(check);
-
-            return (
-              <div
-                key={`${check.fieldName}-${check.status}`}
-                className={cn(
-                  "grid grid-cols-[minmax(12rem,0.8fr)_minmax(14rem,1fr)_5.5rem_8rem_7rem] items-center gap-3 border-b border-black/5 px-3 py-2.5 last:border-b-0 max-xl:grid-cols-[minmax(0,1fr)_auto] max-xl:gap-y-2",
-                  rowTone === "danger" && "bg-[var(--color-error-soft)]/45",
-                  rowTone === "warning" && "bg-[var(--color-gold-soft)]/45",
-                  rowTone === "success" && "bg-[var(--color-sage-soft)]/35",
-                  rowTone === "neutral" && "bg-white/45",
-                )}
-              >
-                <div>
-                  <p className="text-sm font-semibold text-[var(--color-ink)]">
-                    {technicalFactFieldLabel(check.fieldName)}
-                  </p>
-                  <p className="mt-0.5 text-[0.58rem] font-bold uppercase tracking-[0.08em] text-[var(--color-muted)]">
-                    {check.fieldName} · {check.cardinality}
-                  </p>
-                </div>
-                <p className="text-xs font-semibold leading-5 text-[var(--color-forest)]">
-                  {valueLabel}
-                </p>
-                <p className="text-xs font-semibold text-[var(--color-ink)]">
-                  {formatGcpConfidence(check.confidence)}
-                </p>
-                <Badge tone={rowTone}>{validationCheckStatusLabel(check)}</Badge>
-                <div className="justify-self-end">
-                  {reviewCase && ["A_TRAITER", "DOCUMENT_A_REMPLACER"].includes(reviewCase.status) ? (
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      onClick={() => setSelectedCase(reviewCase)}
-                    >
-                      Décider
-                    </Button>
-                  ) : (
-                    <span className="text-xs font-semibold text-[var(--color-muted)]">
-                      {rowTone === "success" ? "Validé" : "Sans action"}
-                    </span>
-                  )}
-                </div>
+              <div className="grid grid-cols-[minmax(11rem,0.75fr)_minmax(18rem,1.45fr)_5.5rem_9.5rem_6.5rem] gap-4 border-b border-black/5 px-3 py-2 text-[0.64rem] font-bold uppercase tracking-[0.14em] text-[var(--color-muted)] max-xl:hidden">
+                <span>Label</span>
+                <span>Valeur retenue</span>
+                <span>Score</span>
+                <span className="text-center">Statut</span>
+                <span className="text-right">Action</span>
               </div>
-            );
-          })}
+
+              {group.checks.map((check) => {
+                const reviewCase = findReviewCaseForCheck(reviewCases, check);
+                const rowTone = validationCheckTone(check);
+                const valueLabel = validationCheckValueLabel(check);
+                const score = validationCheckScore(check);
+                const hasRetainedValue = check.selectedValues.length > 0;
+                const rejectedCandidates = validationRejectedCandidates(
+                  check,
+                  reviewCases,
+                );
+
+                return (
+                  <div key={`${check.fieldName}-${check.status}`} className="border-b border-black/5 last:border-b-0">
+                    <div
+                      className={cn(
+                        "grid grid-cols-[minmax(11rem,0.75fr)_minmax(18rem,1.45fr)_5.5rem_9.5rem_6.5rem] items-center gap-4 px-3 py-2.5 max-xl:grid-cols-[minmax(0,1fr)_auto] max-xl:gap-y-2",
+                        rowTone === "danger" && "bg-[var(--color-error-soft)]/45",
+                        rowTone === "warning" && "bg-[var(--color-gold-soft)]/45",
+                        rowTone === "success" && "bg-[var(--color-sage-soft)]/35",
+                        rowTone === "neutral" && "bg-white/45",
+                      )}
+                    >
+                      <ValidationLabelCell
+                        check={check}
+                        factCandidates={factCandidates}
+                        reviewCases={reviewCases}
+                        sourceById={sourceById}
+                      />
+                      <ValidationValueCell
+                        showDash={!hasRetainedValue && rowTone === "danger"}
+                        valueLabel={valueLabel}
+                      />
+                      <p className="text-xs font-semibold text-[var(--color-ink)]">
+                        {hasRetainedValue || rowTone !== "danger"
+                          ? formatGcpConfidence(score)
+                          : "-"}
+                      </p>
+                      <div className="justify-self-center">
+                        <ValidationStatusBadge check={check} tone={rowTone} />
+                      </div>
+                      <div className="min-w-0 justify-self-end">
+                        {reviewCase && ["A_TRAITER", "DOCUMENT_A_REMPLACER"].includes(reviewCase.status) ? (
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => setSelectedCase(reviewCase)}
+                          >
+                            Décider
+                          </Button>
+                        ) : (
+                          <span className="text-xs font-semibold text-[var(--color-muted)]">
+                            -
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    {rowTone === "danger" && rejectedCandidates.length > 0 ? (
+                      <RejectedValidationCandidates candidates={rejectedCandidates} />
+                    ) : null}
+                  </div>
+                );
+              })}
+            </details>
+          ))}
         </div>
       </details>
 
@@ -1526,6 +1339,7 @@ function TechnicalValidationResultsDisclosure({
         }}
         open={selectedCase !== null}
         productId={productId}
+        relatedReviewCases={relatedOpenReviewCases(selectedCase, reviewCases)}
         reviewCase={selectedCase}
       />
     </>
@@ -1558,7 +1372,7 @@ function GenerationReadinessSummary({
       </div>
 
       <p className="mt-2 text-sm font-semibold leading-5 text-[var(--color-forest)]">
-        {generationReadiness.profile_code ?? "Profil product_sheet"}
+        Profil de prérequis fiche produit
       </p>
 
       {requiredMissing.length > 0 ? (
@@ -1691,8 +1505,16 @@ function FactsCard({ overview }: { overview: ProductOverview }) {
                       {unit ? ` ${unit}` : ""}
                     </td>
                     <td className="px-4 py-4">
-                      <Badge tone={isFact ? "success" : item.review_required ? "warning" : "neutral"}>
-                        {isFact ? "Validé" : item.validation_status}
+                      <Badge
+                        tone={
+                          isFact
+                            ? "success"
+                            : item.validation_status === "NEEDS_REVIEW"
+                              ? "warning"
+                              : "neutral"
+                        }
+                      >
+                        {isFact ? "Validé" : technicalFactCandidateStatusLabel(item.validation_status)}
                       </Badge>
                     </td>
                   </tr>
@@ -1704,6 +1526,22 @@ function FactsCard({ overview }: { overview: ProductOverview }) {
       )}
     </Card>
   );
+}
+
+function technicalFactCandidateStatusLabel(status: string) {
+  if (status === "EXTRACTED") {
+    return "Extrait";
+  }
+  if (status === "NEEDS_REVIEW") {
+    return "À vérifier";
+  }
+  if (status === "PROMOTED") {
+    return "Promu";
+  }
+  if (status === "REJECTED") {
+    return "Rejeté";
+  }
+  return formatCode(status);
 }
 
 function GenerationCard({ overview }: { overview: ProductOverview }) {
@@ -2202,11 +2040,21 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 type ValidationFieldCheck = {
   fieldName: string;
   cardinality: string;
+  level: string;
   status: string;
   selectedValues: string[];
+  selectedCandidateIndexes: number[];
+  selectedSources: Array<Record<string, unknown>>;
   confidence: number | null;
+  threshold: number | null;
   blockingReason: string | null;
   alternatives: Array<Record<string, unknown>>;
+};
+
+type RejectedValidationCandidate = {
+  confidence: number | null;
+  reason: string;
+  value: string;
 };
 
 function validationFieldChecks(
@@ -2229,9 +2077,13 @@ function validationFieldChecks(
       {
         fieldName,
         cardinality: stringRecordValue(rawCheck, "cardinality") ?? "SINGLE",
+        level: stringRecordValue(rawCheck, "level") ?? "REQUIRED",
         status: stringRecordValue(rawCheck, "status") ?? "UNKNOWN",
         selectedValues: stringArrayRecordValue(rawCheck, "selected_values"),
+        selectedCandidateIndexes: numberArrayRecordValue(rawCheck, "selected_candidate_indexes"),
+        selectedSources: recordArrayValue(rawCheck, "selected_sources"),
         confidence: numberRecordValue(rawCheck, "confidence"),
+        threshold: numberRecordValue(rawCheck, "threshold"),
         blockingReason: stringRecordValue(rawCheck, "blocking_reason"),
         alternatives: recordArrayValue(rawCheck, "alternatives"),
       },
@@ -2243,6 +2095,14 @@ function findReviewCaseForCheck(
   reviewCases: TechnicalReviewCase[],
   check: ValidationFieldCheck,
 ): TechnicalReviewCase | null {
+  if (isIgnoredValidationCheck(check)) {
+    return null;
+  }
+
+  if (check.status !== "BLOCKED" && check.status !== "WARNING") {
+    return null;
+  }
+
   return (
     reviewCases.find(
       (reviewCase) =>
@@ -2252,11 +2112,540 @@ function findReviewCaseForCheck(
   );
 }
 
+function relatedOpenReviewCases(
+  reviewCase: TechnicalReviewCase | null,
+  reviewCases: TechnicalReviewCase[],
+) {
+  if (reviewCase === null || reviewCase.field_name === null) {
+    return reviewCase === null ? [] : [reviewCase];
+  }
+
+  const relatedCases = reviewCases.filter(
+    (candidateReviewCase) =>
+      candidateReviewCase.field_name === reviewCase.field_name &&
+      ["A_TRAITER", "DOCUMENT_A_REMPLACER"].includes(candidateReviewCase.status) &&
+      candidateReviewCase.case_type !== "CLASSIFICATION_UNCERTAIN",
+  );
+
+  return relatedCases.length > 0 ? relatedCases : [reviewCase];
+}
+
+function ValidationStatusBadge({
+  check,
+  tone,
+}: {
+  check: ValidationFieldCheck;
+  tone: "danger" | "neutral" | "success" | "warning";
+}) {
+  return (
+    <Badge className="w-fit whitespace-nowrap" tone={tone}>
+      {validationCheckStatusLabel(check)}
+    </Badge>
+  );
+}
+
+function RejectedValidationCandidates({
+  candidates,
+}: {
+  candidates: RejectedValidationCandidate[];
+}) {
+  const visibleCandidates = candidates.slice(0, 3);
+  const hiddenCount = Math.max(candidates.length - visibleCandidates.length, 0);
+  const candidateCount = candidates.length;
+
+  return (
+    <details className="group/rejected-candidates bg-[var(--color-error-soft)]/30 px-3 pb-3 pt-1">
+      <summary className="flex w-fit cursor-pointer list-none items-center gap-2 rounded-xl px-2 py-1 text-[0.68rem] font-bold uppercase tracking-[0.12em] text-[var(--color-error)] transition hover:bg-white/45 [&::-webkit-details-marker]:hidden">
+        <span
+          aria-hidden="true"
+          className="size-0 border-y-[4px] border-l-[6px] border-y-transparent border-l-current transition-transform group-open/rejected-candidates:rotate-90"
+        />
+        {candidateCount} valeur{candidateCount > 1 ? "s" : ""} détectée{candidateCount > 1 ? "s" : ""}
+      </summary>
+      <div className="rounded-2xl bg-white/55 px-3 py-2.5 shadow-[inset_0_0_0_1px_rgba(128,60,45,0.08)]">
+        <p className="text-[0.66rem] font-bold uppercase tracking-[0.14em] text-[var(--color-muted)]">
+          Valeurs détectées non retenues
+        </p>
+        <div className="mt-2 grid gap-1.5">
+          {visibleCandidates.map((candidate, index) => (
+            <div
+              key={`${candidate.value}-${candidate.confidence ?? "none"}-${index}`}
+              className="flex items-start justify-between gap-4 rounded-xl bg-white/55 px-2.5 py-2 text-xs max-lg:flex-col max-lg:gap-1"
+            >
+              <p className="min-w-0 flex-1 font-semibold leading-5 text-[var(--color-forest)]">
+                {candidate.value}
+              </p>
+              <div className="flex shrink-0 flex-wrap items-center justify-end gap-x-2 gap-y-1 text-right max-lg:justify-start max-lg:text-left">
+                <span className="font-semibold text-[var(--color-ink)]">
+                  {formatGcpConfidence(candidate.confidence)}
+                </span>
+                <span className="text-[var(--color-muted)]">·</span>
+                <span className="font-semibold text-[var(--color-error)]">
+                  {candidate.reason}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+        {hiddenCount > 0 ? (
+          <p className="mt-2 text-xs font-semibold text-[var(--color-muted)]">
+            + {hiddenCount} autre{hiddenCount > 1 ? "s" : ""} valeur{hiddenCount > 1 ? "s" : ""} détectée{hiddenCount > 1 ? "s" : ""}
+          </p>
+        ) : null}
+      </div>
+    </details>
+  );
+}
+
+function ValidationLabelCell({
+  check,
+  factCandidates,
+  reviewCases,
+  sourceById,
+}: {
+  check: ValidationFieldCheck;
+  factCandidates: TechnicalFactCandidate[];
+  reviewCases: TechnicalReviewCase[];
+  sourceById: Map<string, TechnicalSource>;
+}) {
+  const description = technicalFactLabelDescription(
+    check.fieldName,
+    validationCheckDocumentType(check, factCandidates, reviewCases, sourceById),
+  );
+
+  return (
+    <div className="min-w-0">
+      <p
+        className="cursor-help break-words text-sm font-semibold leading-5 text-[var(--color-ink)]"
+        title={description}
+      >
+        {check.fieldName}
+      </p>
+      <p className="mt-0.5 text-[0.58rem] font-bold uppercase tracking-[0.12em] text-[var(--color-muted)]">
+        {validationRequirementLevelLabel(check.level)}
+      </p>
+    </div>
+  );
+}
+
+function ValidationValueCell({
+  showDash = false,
+  valueLabel,
+}: {
+  showDash?: boolean;
+  valueLabel: string;
+}) {
+  if (showDash) {
+    return (
+      <p className="text-xs font-semibold text-[var(--color-forest)]">
+        -
+      </p>
+    );
+  }
+
+  return (
+    <div className="min-w-0">
+      <p className="break-words text-xs font-semibold leading-5 text-[var(--color-forest)]">
+        {valueLabel}
+      </p>
+    </div>
+  );
+}
+
+function validationCheckSourceRefs(
+  check: ValidationFieldCheck,
+  factCandidates: TechnicalFactCandidate[],
+) {
+  const sourceRecords =
+    check.selectedSources.length > 0 ? check.selectedSources : check.alternatives;
+  const sourcesById = new Map<
+    string,
+    { sourceId: string | null; sourceDocumentType: string | null }
+  >();
+
+  for (const candidateIndex of check.selectedCandidateIndexes) {
+    const candidate = factCandidates[candidateIndex];
+    if (candidate === undefined) {
+      continue;
+    }
+
+    sourcesById.set(candidate.source_id, {
+      sourceId: candidate.source_id,
+      sourceDocumentType: null,
+    });
+  }
+
+  for (const sourceRecord of sourceRecords) {
+    const sourceId = stringRecordValue(sourceRecord, "source_id");
+    const sourceDocumentType = stringRecordValue(sourceRecord, "source_document_type");
+    const key = sourceId ?? `${sourceDocumentType ?? "unknown"}-${sourcesById.size}`;
+
+    if (!sourcesById.has(key)) {
+      sourcesById.set(key, { sourceId, sourceDocumentType });
+    }
+  }
+
+  return Array.from(sourcesById.values());
+}
+
+function validationCheckDocumentType(
+  check: ValidationFieldCheck,
+  factCandidates: TechnicalFactCandidate[],
+  reviewCases: TechnicalReviewCase[],
+  sourceById: Map<string, TechnicalSource>,
+) {
+  const sourceRef = validationCheckSourceRefs(check, factCandidates)[0];
+  const sourceDocumentType = sourceRef?.sourceId
+    ? sourceById.get(sourceRef.sourceId)?.document_type
+    : null;
+
+  if (sourceDocumentType) {
+    return sourceDocumentType;
+  }
+
+  if (sourceRef?.sourceDocumentType) {
+    return sourceRef.sourceDocumentType;
+  }
+
+  const reviewCase = reviewCases.find(
+    (candidateReviewCase) => candidateReviewCase.field_name === check.fieldName,
+  );
+  const reviewCaseSource = reviewCase?.source_id ? sourceById.get(reviewCase.source_id) : null;
+
+  if (reviewCaseSource?.document_type) {
+    return reviewCaseSource.document_type;
+  }
+
+  const metadata = isRecord(reviewCase?.metadata_json) ? reviewCase.metadata_json : null;
+  return metadata ? stringRecordValue(metadata, "source_document_type") : null;
+}
+
+function validationRejectedCandidates(
+  check: ValidationFieldCheck,
+  reviewCases: TechnicalReviewCase[],
+): RejectedValidationCandidate[] {
+  const alternatives = check.alternatives
+    .map((alternative) => rejectedCandidateFromRecord(alternative, check))
+    .filter((candidate): candidate is RejectedValidationCandidate => candidate !== null);
+
+  const fallbackReviewCases = reviewCases
+    .filter(
+      (reviewCase) =>
+        reviewCase.field_name === check.fieldName &&
+        ["A_TRAITER", "DOCUMENT_A_REMPLACER"].includes(reviewCase.status),
+    )
+    .map((reviewCase) => rejectedCandidateFromReviewCase(reviewCase, check))
+    .filter((candidate): candidate is RejectedValidationCandidate => candidate !== null);
+
+  const candidates = alternatives.length > 0 ? alternatives : fallbackReviewCases;
+  const deduped = new Map<string, RejectedValidationCandidate>();
+
+  for (const candidate of candidates) {
+    const key = `${candidate.value}-${candidate.confidence ?? "none"}`;
+    deduped.set(key, candidate);
+  }
+
+  return Array.from(deduped.values()).sort(
+    (left, right) => (right.confidence ?? -1) - (left.confidence ?? -1),
+  );
+}
+
+function rejectedCandidateFromRecord(
+  record: Record<string, unknown>,
+  check: ValidationFieldCheck,
+): RejectedValidationCandidate | null {
+  const value = validationRecordValue(record);
+  if (value === null) {
+    return null;
+  }
+
+  const confidence = numberRecordValue(record, "confidence");
+  const threshold = check.threshold;
+
+  return {
+    confidence,
+    reason: validationRejectedReason(confidence, threshold, check.blockingReason),
+    value,
+  };
+}
+
+function rejectedCandidateFromReviewCase(
+  reviewCase: TechnicalReviewCase,
+  check: ValidationFieldCheck,
+): RejectedValidationCandidate | null {
+  const metadata = isRecord(reviewCase.metadata_json) ? reviewCase.metadata_json : {};
+  const value =
+    reviewCase.detected_value ??
+    validationRecordValue(metadata) ??
+    stringRecordValue(metadata, "detected_value");
+
+  if (value === null) {
+    return null;
+  }
+
+  const confidence =
+    numberRecordValue(metadata, "extractor_confidence") ??
+    numberRecordValue(metadata, "confidence");
+  const threshold = numberRecordValue(metadata, "threshold") ?? check.threshold;
+
+  return {
+    confidence,
+    reason: validationRejectedReason(confidence, threshold, reviewCase.case_type),
+    value: reviewCase.detected_unit ? `${value} ${reviewCase.detected_unit}` : value,
+  };
+}
+
+function validationRecordValue(record: Record<string, unknown>) {
+  const value =
+    stringRecordValue(record, "normalized_value") ??
+    stringRecordValue(record, "raw_value") ??
+    stringRecordValue(record, "detected_value");
+  const unit = stringRecordValue(record, "unit") ?? stringRecordValue(record, "detected_unit");
+
+  return value ? `${value}${unit && !value.includes(unit) ? ` ${unit}` : ""}` : null;
+}
+
+function validationRejectedReason(
+  confidence: number | null,
+  threshold: number | null,
+  fallbackReason: string | null,
+) {
+  if (confidence !== null && threshold !== null && confidence < threshold) {
+    return `Sous le seuil ${formatGcpConfidence(threshold)}`;
+  }
+
+  if (fallbackReason === "VALUE_OUT_OF_RANGE") {
+    return "Hors borne";
+  }
+  if (fallbackReason === "CONTRADICTION") {
+    return "Conflit";
+  }
+
+  return fallbackReason ? formatCode(fallbackReason) : "Non retenue";
+}
+
+const VALIDATION_SOURCE_TYPE_ORDER = [
+  "TECHNICAL_SHEET",
+  "MATERIAL_SPECIFICATION",
+  "ASSEMBLY_NOTICE",
+];
+
+type ValidationCheckGroup = {
+  blockingCount: number;
+  checks: ValidationFieldCheck[];
+  ignoredCount: number;
+  key: string;
+  label: string;
+  rank: number;
+  sourceTitle?: string;
+};
+
+function groupValidationChecksBySource(
+  checks: ValidationFieldCheck[],
+  sourceById: Map<string, TechnicalSource>,
+  factCandidates: TechnicalFactCandidate[],
+  reviewCases: TechnicalReviewCase[],
+): ValidationCheckGroup[] {
+  const groups = new Map<
+    string,
+    Omit<ValidationCheckGroup, "blockingCount" | "ignoredCount" | "sourceTitle"> & {
+      fileNames: Set<string>;
+    }
+  >();
+
+  for (const check of checks) {
+    const sourceRefs = validationCheckSourceRefs(check, factCandidates);
+    const documentType =
+      validationCheckGroupDocumentType(sourceRefs, sourceById) ??
+      validationCheckDocumentType(check, factCandidates, reviewCases, sourceById);
+    const key = documentType ?? "TRANSVERSAL";
+    const rank = validationSourceTypeRank(documentType);
+    const group =
+      groups.get(key) ??
+      {
+        checks: [],
+        fileNames: new Set<string>(),
+        key,
+        label: documentType ? technicalDocumentTypeLabel(documentType) : "Contrôles transverses",
+        rank,
+      };
+
+    group.checks.push(check);
+    for (const fileName of validationCheckSourceFileNames(
+      check,
+      sourceRefs,
+      reviewCases,
+      sourceById,
+    )) {
+      group.fileNames.add(fileName);
+    }
+    groups.set(key, group);
+  }
+
+  return Array.from(groups.values())
+    .map((group) => ({
+      blockingCount: group.checks.filter(
+        (check) => check.status === "BLOCKED",
+      ).length,
+      checks: group.checks,
+      ignoredCount: group.checks.filter(isIgnoredValidationCheck).length,
+      key: group.key,
+      label: group.label,
+      rank: group.rank,
+      sourceTitle:
+        group.fileNames.size > 0 ? Array.from(group.fileNames).join("\n") : undefined,
+    }))
+    .sort((left, right) => {
+      const leftBlockingRank = left.blockingCount > 0 ? 0 : left.ignoredCount > 0 ? 1 : 2;
+      const rightBlockingRank = right.blockingCount > 0 ? 0 : right.ignoredCount > 0 ? 1 : 2;
+
+      if (leftBlockingRank !== rightBlockingRank) {
+        return leftBlockingRank - rightBlockingRank;
+      }
+
+      if (left.rank !== right.rank) {
+        return left.rank - right.rank;
+      }
+
+      return left.label.localeCompare(right.label, "fr");
+    });
+}
+
+function validationCheckSourceFileNames(
+  check: ValidationFieldCheck,
+  sourceRefs: Array<{ sourceId: string | null; sourceDocumentType: string | null }>,
+  reviewCases: TechnicalReviewCase[],
+  sourceById: Map<string, TechnicalSource>,
+) {
+  const fileNames = new Set<string>();
+
+  for (const sourceRef of sourceRefs) {
+    const fileName = sourceById.get(sourceRef.sourceId ?? "")?.original_file_name;
+    if (fileName) {
+      fileNames.add(fileName);
+    }
+  }
+
+  for (const reviewCase of reviewCases) {
+    if (reviewCase.field_name !== check.fieldName) {
+      continue;
+    }
+
+    const sourceId =
+      reviewCase.source_id ??
+      (isRecord(reviewCase.metadata_json)
+        ? stringRecordValue(reviewCase.metadata_json, "source_id")
+        : null);
+    const fileName = sourceId ? sourceById.get(sourceId)?.original_file_name : undefined;
+    if (fileName) {
+      fileNames.add(fileName);
+    }
+  }
+
+  return Array.from(fileNames);
+}
+
+function validationCheckGroupDocumentType(
+  sourceRefs: Array<{ sourceId: string | null; sourceDocumentType: string | null }>,
+  sourceById: Map<string, TechnicalSource>,
+) {
+  const documentTypes = sourceRefs
+    .map((sourceRef) => {
+      const sourceDocumentType = sourceRef.sourceId
+        ? sourceById.get(sourceRef.sourceId)?.document_type
+        : null;
+      return sourceDocumentType ?? sourceRef.sourceDocumentType;
+    })
+    .filter((documentType): documentType is string => documentType !== null);
+
+  return documentTypes.sort(
+    (left, right) => validationSourceTypeRank(left) - validationSourceTypeRank(right),
+  )[0] ?? null;
+}
+
+function validationSourceTypeRank(documentType: string | null) {
+  if (documentType === null) {
+    return VALIDATION_SOURCE_TYPE_ORDER.length;
+  }
+
+  const index = VALIDATION_SOURCE_TYPE_ORDER.indexOf(documentType);
+  return index === -1 ? VALIDATION_SOURCE_TYPE_ORDER.length : index;
+}
+
+function sortValidationChecksBySource(
+  checks: ValidationFieldCheck[],
+  sourceById: Map<string, TechnicalSource>,
+  factCandidates: TechnicalFactCandidate[],
+) {
+  return [...checks].sort((left, right) => {
+    const leftStatusRank = validationCheckStatusRank(left);
+    const rightStatusRank = validationCheckStatusRank(right);
+
+    if (leftStatusRank !== rightStatusRank) {
+      return leftStatusRank - rightStatusRank;
+    }
+
+    const leftSourceRank = validationCheckSourceRank(left, sourceById, factCandidates);
+    const rightSourceRank = validationCheckSourceRank(right, sourceById, factCandidates);
+
+    if (leftSourceRank !== rightSourceRank) {
+      return leftSourceRank - rightSourceRank;
+    }
+
+    return left.fieldName.localeCompare(right.fieldName, "fr");
+  });
+}
+
+function validationCheckStatusRank(check: ValidationFieldCheck) {
+  if (check.status === "BLOCKED") {
+    return 0;
+  }
+  if (isIgnoredValidationCheck(check)) {
+    return 1;
+  }
+  if (check.status === "WARNING") {
+    return 2;
+  }
+  if (check.status === "PASSED") {
+    return 3;
+  }
+  if (check.status === "SKIPPED") {
+    return 4;
+  }
+  return 5;
+}
+
+function validationCheckSourceRank(
+  check: ValidationFieldCheck,
+  sourceById: Map<string, TechnicalSource>,
+  factCandidates: TechnicalFactCandidate[],
+) {
+  const documentTypes = validationCheckSourceRefs(check, factCandidates)
+    .map((sourceRef) => {
+      const sourceDocumentType = sourceRef.sourceId
+        ? sourceById.get(sourceRef.sourceId)?.document_type
+        : null;
+      return sourceDocumentType ?? sourceRef.sourceDocumentType;
+    })
+    .filter((documentType): documentType is string => documentType !== null);
+
+  if (documentTypes.length === 0) {
+    return VALIDATION_SOURCE_TYPE_ORDER.length;
+  }
+
+  return Math.min(
+    ...documentTypes.map((documentType) => validationSourceTypeRank(documentType)),
+  );
+}
+
 function validationCheckTone(
   check: ValidationFieldCheck,
 ): "danger" | "neutral" | "success" | "warning" {
   if (check.status === "BLOCKED") {
     return "danger";
+  }
+  if (isIgnoredValidationCheck(check)) {
+    return "warning";
   }
   if (check.status === "WARNING") {
     return "warning";
@@ -2269,7 +2658,13 @@ function validationCheckTone(
 
 function validationCheckStatusLabel(check: ValidationFieldCheck) {
   if (check.status === "BLOCKED") {
+    if (check.blockingReason === "NO_VALID_CANDIDATE") {
+      return "Invalide";
+    }
     return check.blockingReason ? formatCode(check.blockingReason) : "Bloqué";
+  }
+  if (isIgnoredValidationCheck(check)) {
+    return "Ignoré";
   }
   if (check.status === "WARNING") {
     return "À surveiller";
@@ -2278,9 +2673,34 @@ function validationCheckStatusLabel(check: ValidationFieldCheck) {
     return "Validé";
   }
   if (check.status === "SKIPPED") {
+    if (isIgnoredValidationCheck(check)) {
+      return "Ignoré";
+    }
     return "Non mentionné";
   }
   return formatCode(check.status);
+}
+
+function isIgnoredValidationCheck(check: ValidationFieldCheck) {
+  return (
+    (check.status === "SKIPPED" && check.blockingReason?.startsWith("IGNORED_")) ||
+    (check.status === "WARNING" &&
+      check.level === "OPTIONAL" &&
+      check.blockingReason === "LOW_CONFIDENCE")
+  );
+}
+
+function validationRequirementLevelLabel(level: string) {
+  if (level === "REQUIRED") {
+    return "Obligatoire";
+  }
+  if (level === "CONDITIONAL") {
+    return "Conditionnel";
+  }
+  if (level === "OPTIONAL") {
+    return "Optionnel";
+  }
+  return formatCode(level);
 }
 
 function validationCheckValueLabel(check: ValidationFieldCheck) {
@@ -2301,6 +2721,18 @@ function validationCheckValueLabel(check: ValidationFieldCheck) {
   return alternativeValues.length > 0 ? alternativeValues.join(" / ") : "Non renseigné";
 }
 
+function validationCheckScore(check: ValidationFieldCheck) {
+  if (check.confidence !== null) {
+    return check.confidence;
+  }
+
+  const alternativeScores = check.alternatives
+    .map((alternative) => numberRecordValue(alternative, "confidence"))
+    .filter((score): score is number => score !== null);
+
+  return alternativeScores.length > 0 ? Math.max(...alternativeScores) : null;
+}
+
 function stringRecordValue(record: Record<string, unknown>, key: string): string | null {
   const value = record[key];
   return typeof value === "string" && value.length > 0 ? value : null;
@@ -2318,6 +2750,13 @@ function stringArrayRecordValue(record: Record<string, unknown>, key: string): s
     : [];
 }
 
+function numberArrayRecordValue(record: Record<string, unknown>, key: string): number[] {
+  const value = record[key];
+  return Array.isArray(value)
+    ? value.filter((item): item is number => typeof item === "number" && Number.isFinite(item))
+    : [];
+}
+
 function recordArrayValue(record: Record<string, unknown>, key: string): Array<Record<string, unknown>> {
   const value = record[key];
   return Array.isArray(value) ? value.filter(isRecord) : [];
@@ -2326,217 +2765,6 @@ function recordArrayValue(record: Record<string, unknown>, key: string): Array<R
 function formatNullable(value: string | null | undefined) {
   return value && value.length > 0 ? value : "Non renseigné";
 }
-
-function extractionCandidateProofText(candidate: TechnicalFactCandidate) {
-  const value =
-    candidate.source_evidence_text ?? candidate.raw_value ?? candidate.normalized_value;
-  return value !== null && value.trim().length > 0 ? value : null;
-}
-
-function extractionCandidateDisplayValue(candidate: TechnicalFactCandidate) {
-  const evidenceText = candidate.source_evidence_text?.trim();
-  if (evidenceText) {
-    return evidenceText;
-  }
-
-  const rawValue = candidate.raw_value?.trim();
-  if (rawValue) {
-    return rawValue;
-  }
-
-  const normalizedValue = candidate.normalized_value?.trim();
-  if (!normalizedValue) {
-    return "Non extrait";
-  }
-
-  return candidate.unit ? `${normalizedValue} ${candidate.unit}` : normalizedValue;
-}
-
-type ExtractionCandidateGroup = {
-  sourceId: string;
-  fileName: string;
-  candidates: TechnicalFactCandidate[];
-};
-
-function groupExtractionCandidatesBySource(
-  candidates: TechnicalFactCandidate[],
-  sources: TechnicalSource[],
-): ExtractionCandidateGroup[] {
-  const candidatesBySourceId = new Map<string, TechnicalFactCandidate[]>();
-
-  for (const candidate of candidates) {
-    const group = candidatesBySourceId.get(candidate.source_id) ?? [];
-    group.push(candidate);
-    candidatesBySourceId.set(candidate.source_id, group);
-  }
-
-  const groups = sources.flatMap((source) => {
-    const sourceCandidates = candidatesBySourceId.get(source.id) ?? [];
-    return sourceCandidates.length === 0
-      ? []
-      : [
-          {
-            sourceId: source.id,
-            fileName: source.original_file_name,
-            candidates: sourceCandidates,
-          },
-        ];
-  });
-
-  for (const [sourceId, sourceCandidates] of candidatesBySourceId.entries()) {
-    if (sources.some((source) => source.id === sourceId)) {
-      continue;
-    }
-
-    groups.push({
-      sourceId,
-      fileName: "PDF technique",
-      candidates: sourceCandidates,
-    });
-  }
-
-  return groups;
-}
-
-function buildExtractionCandidateOccurrenceLabels(
-  candidates: TechnicalFactCandidate[],
-): Map<string, string> {
-  const totalsByFieldName = new Map<string, number>();
-  const seenByFieldName = new Map<string, number>();
-  const labelsByCandidateId = new Map<string, string>();
-
-  for (const candidate of candidates) {
-    totalsByFieldName.set(
-      candidate.field_name,
-      (totalsByFieldName.get(candidate.field_name) ?? 0) + 1,
-    );
-  }
-
-  for (const candidate of candidates) {
-    const total = totalsByFieldName.get(candidate.field_name) ?? 0;
-    if (total <= 1) {
-      continue;
-    }
-
-    const index = (seenByFieldName.get(candidate.field_name) ?? 0) + 1;
-    seenByFieldName.set(candidate.field_name, index);
-    labelsByCandidateId.set(candidate.id, `${index}/${total}`);
-  }
-
-  return labelsByCandidateId;
-}
-
-function technicalFactLabelMetadata(_fieldName: string): {
-  dataType: string;
-  method: string;
-  occurrence: string;
-} {
-  return {
-    dataType: "Plain text",
-    method: "Extract",
-    occurrence: "Optional multiple",
-  };
-}
-
-function technicalFactLabelDescription(
-  fieldName: string,
-  documentType: string | null | undefined,
-) {
-  const scopedDescription =
-    TECHNICAL_FACT_LABEL_DESCRIPTIONS[`${documentType ?? ""}:${fieldName}`];
-  return scopedDescription ?? TECHNICAL_FACT_LABEL_DESCRIPTIONS[fieldName] ?? fieldName;
-}
-
-const TECHNICAL_FACT_LABEL_DESCRIPTIONS: Record<string, string> = {
-  "TECHNICAL_SHEET:component_dimensions":
-    "Extraire les dimensions d’un composant important : plateau, piètement, cadre, assise, manche, lame, toile, roue ou bac. Conserver unités et tolérances. Ne pas extraire les dimensions globales du produit fini ni du colis.",
-  "TECHNICAL_SHEET:dimension_depth":
-    "Extraire la profondeur du produit fini exactement comme écrite. Si les dimensions sont groupées (L/P/H, L x P x H), prendre la deuxième valeur selon l’ordre annoncé. Conserver l’unité source si visible. Ne pas convertir. Ne pas extraire une dimension de colis ou composant.",
-  "TECHNICAL_SHEET:dimension_height":
-    "Extraire la hauteur du produit fini exactement comme écrite. Si les dimensions sont groupées (L/P/H, L x P x H), prendre la troisième valeur selon l’ordre annoncé. Conserver l’unité source si visible. Ne pas convertir. Ne pas extraire la hauteur de colis.",
-  "TECHNICAL_SHEET:dimension_set_raw":
-    "Extraire la ligne ou cellule complète qui donne les dimensions du produit fini avec ordre et unité : L/P/H, L x P x H, largeur/profondeur/hauteur, mm, cm ou m. Ne pas convertir. Ne pas extraire dimensions colis ou composant.",
-  "TECHNICAL_SHEET:dimension_width":
-    "Extraire la largeur ou longueur principale du produit fini exactement comme écrite. Si les dimensions sont groupées (L/P/H, L x P x H), prendre la première valeur selon l’ordre annoncé. Conserver l’unité source si visible. Ne pas convertir. Ne pas extraire une dimension de colis ou composant.",
-  "TECHNICAL_SHEET:feature_or_accessory":
-    "Extraire les fonctionnalités ou accessoires techniques écrits : passage parasol, patins, poignée, lame, housse, verrouillage, batterie, réglage.",
-  "TECHNICAL_SHEET:finish_primary":
-    "Extraire la finition principale : huile, peinture, poudre, couleur, RAL, traitement de surface ou aspect. Ne pas transformer en promesse de durabilité.",
-  "TECHNICAL_SHEET:material_primary":
-    "Extraire la matière principale du produit ou de la partie dominante. Inclure essence, grade, alliage ou nom scientifique si présents. Ne rien inventer.",
-  "TECHNICAL_SHEET:material_secondary":
-    "Extraire les matières secondaires structurantes : piètement, cadre, visserie, manche, lame, textile, batterie. Inclure grade ou finition si écrit.",
-  "TECHNICAL_SHEET:product_name":
-    "Extraire le nom ou la désignation produit exacte couverte par la fiche technique. Prendre le nom le plus spécifique. Ne pas extraire une famille générique ni un autre produit cité.",
-  "TECHNICAL_SHEET:quality_control_points":
-    "Extraire les critères de contrôle qualité explicitement listés : stabilité, jeu, tolérance, nettoyage, conformité atelier. Garder les formulations techniques.",
-  "TECHNICAL_SHEET:sku":
-    "Extraire la référence produit, SKU ou code article exact. Conserver lettres, chiffres et tirets. Ne pas confondre avec lot, révision ou tampon documentaire.",
-  "TECHNICAL_SHEET:technical_claim_limits":
-    "Extraire les notes qui limitent l’usage marketing des données techniques : absence de garantie permanente, entretien limité, usage non absolu. Ne pas créer de restriction absente.",
-  "TECHNICAL_SHEET:usage_capacity":
-    "Extraire la capacité d’usage explicitement indiquée : nombre de places, charge, volume, surface couverte ou cadence recommandée. Ne pas déduire depuis les dimensions.",
-  "TECHNICAL_SHEET:weight":
-    "Extraire le poids du produit hors emballage exactement comme écrit. Conserver l’unité source, la tolérance ou la plage si présentes. Ne pas convertir. Ne pas extraire le poids du colis, de la palette ou de l’emballage.",
-  "MATERIAL_SPECIFICATION:assembly_site":
-    "Extraire le site d’assemblage, fabrication ou pays d’origine s’il est explicitement écrit. Ne pas déduire depuis une langue ou un code.",
-  "MATERIAL_SPECIFICATION:certificate_valid_until":
-    "Extraire la date de validité, expiration ou prochaine vérification. Ne pas extraire la date d’émission si aucune validité n’est indiquée.",
-  "MATERIAL_SPECIFICATION:certification_claim_type":
-    "Extraire le type exact de revendication certifiée, par exemple FSC Mix Credit. Ne jamais transformer en claim plus fort comme 100 % FSC.",
-  "MATERIAL_SPECIFICATION:chain_of_custody_code":
-    "Extraire le code de chaîne de contrôle, CoC ou audit associé. Conserver le format exact et ne pas le confondre avec une licence de marque.",
-  "MATERIAL_SPECIFICATION:covered_component":
-    "Extraire les composants explicitement couverts par la preuve ou certification. Ne pas inclure les composants seulement listés ou exclus.",
-  "MATERIAL_SPECIFICATION:eco_certifications":
-    "Extraire les certifications ou preuves environnementales explicitement valides : FSC, PEFC, SVLK, FLEGT, REACH, RoHS, recyclé, origine contrôlée.",
-  "MATERIAL_SPECIFICATION:excluded_component":
-    "Extraire les composants explicitement exclus du périmètre de certification ou d’attestation. Garder la formulation précise.",
-  "MATERIAL_SPECIFICATION:legality_export_reference":
-    "Extraire les références de légalité export ou traçabilité, par exemple SVLK, FLEGT ou batch export. Conserver le code complet.",
-  "MATERIAL_SPECIFICATION:license_or_certificate_code":
-    "Extraire les codes de licence, certificat, audit ou conformité. Conserver lettres, tirets et chiffres. Ne pas fusionner plusieurs codes.",
-  "MATERIAL_SPECIFICATION:material_origin":
-    "Extraire l’origine déclarée de la matière : pays, plantation, provenance, lot ou légalité export. Ne pas inventer depuis le fournisseur.",
-  "MATERIAL_SPECIFICATION:material_primary":
-    "Extraire la matière, essence, alliage ou composition principale déclarée. Inclure nom scientifique, grade ou origine si présents.",
-  "MATERIAL_SPECIFICATION:product_name":
-    "Extraire le produit couvert par l’attestation matière ou conformité. Ne pas extraire un produit mentionné comme exemple, exclusion ou référence secondaire.",
-  "MATERIAL_SPECIFICATION:sku":
-    "Extraire le SKU, référence article ou code produit concerné par l’attestation. Conserver le format exact. Ne pas confondre avec lot ou certificat.",
-  "MATERIAL_SPECIFICATION:supplier_name":
-    "Extraire le fournisseur, fabricant, site ou organisme émetteur de la déclaration. Ne pas extraire la marque commerciale si elle n’est pas l’émetteur.",
-  "MATERIAL_SPECIFICATION:unsupported_claims":
-    "Extraire les mentions que le document interdit ou ne permet pas d’affirmer : 100 % FSC, zéro entretien, garantie permanente, matériau certifié à tort.",
-  "ASSEMBLY_NOTICE:assembly_constraints":
-    "Extraire les contraintes de montage qui conditionnent la qualité ou la sécurité : support, ordre, jeu, serrage progressif, interdictions, tolérances.",
-  "ASSEMBLY_NOTICE:assembly_people_required":
-    "Extraire le nombre de personnes ou opérateurs nécessaires au montage. Conserver la formulation source, par exemple 2 adultes.",
-  "ASSEMBLY_NOTICE:assembly_product_ref":
-    "Extraire la référence de colis, article, notice ou version de montage. Conserver le format exact. Ne pas confondre avec le SKU commercial.",
-  "ASSEMBLY_NOTICE:assembly_steps":
-    "Extraire la séquence opératoire dans l’ordre : préparer, présenter, équerrer, serrer, régler, contrôler. Garder verbes et contraintes clés.",
-  "ASSEMBLY_NOTICE:assembly_time":
-    "Extraire le temps de montage indiqué ou constaté exactement comme écrit. Conserver l’unité source et la plage si présentes. Ne pas convertir. Ne pas additionner des étapes si aucun total n’est écrit.",
-  "ASSEMBLY_NOTICE:clearance_or_tolerance":
-    "Extraire les jeux, tolérances ou écarts acceptés : diagonales, jeu bois/métal, écart de montage, distance minimale. Conserver unités et tolérances. Ne pas convertir.",
-  "ASSEMBLY_NOTICE:final_quality_check":
-    "Extraire les contrôles finaux demandés après montage : stabilité, hauteur finie, patins, serrage, alignement, surface plane.",
-  "ASSEMBLY_NOTICE:hardware_list":
-    "Extraire la quincaillerie : vis, rondelles, inserts, patins, sachets. Inclure dimensions et quantités si disponibles. Ne pas extraire les outils.",
-  "ASSEMBLY_NOTICE:max_torque":
-    "Extraire le couple de serrage maximum ou recommandé exactement comme écrit. Conserver l’unité source, par exemple N·m. Ne pas convertir. Ne pas extraire un diamètre, une taille ou une référence de vis.",
-  "ASSEMBLY_NOTICE:parts_list":
-    "Extraire la liste des pièces principales à assembler : structure, cadre, pieds, assise, manche, lame, toile, roues, bac ou modules. Inclure quantités si écrites. Ne pas inclure les étapes.",
-  "ASSEMBLY_NOTICE:product_name":
-    "Extraire le nom, article ou référence du produit concerné par la notice. Ne pas extraire le nom d’une pièce ou d’un composant isolé.",
-  "ASSEMBLY_NOTICE:prohibited_actions":
-    "Extraire les actions explicitement interdites : visseuse à choc, reperçage, collage, levage incorrect, usage abrasif. Ne pas reformuler en bénéfice.",
-  "ASSEMBLY_NOTICE:required_tool":
-    "Extraire les outils nécessaires ou fournis : clé Allen, tournevis, maillet, gabarit, niveau. Ne pas extraire la visserie comme outil.",
-  "ASSEMBLY_NOTICE:use_or_safety_warning":
-    "Extraire les avertissements d’usage ou sécurité après montage. Ne pas transformer en argument marketing ni inventer de risque absent.",
-};
 
 function formatGcpConfidence(value: number | null) {
   if (value === null || !Number.isFinite(value)) {

@@ -149,7 +149,7 @@ describe("productsListResponseSchema", () => {
       ],
       commercial_signal_snapshot: null,
       generation_readiness: {
-        profile_code: "mobilier_jardin_table_repas_exterieur_product_sheet_v1",
+        profile_id: "00000000-0000-0000-0000-000000000201",
         ready: false,
         blocking_count: 1,
         required_fields: ["sku", "product_name", "dimension_width"],

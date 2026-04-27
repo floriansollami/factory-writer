@@ -121,11 +121,7 @@ const technicalFactCandidateSchema = z.object({
   unit: z.string().nullable(),
   extractor_confidence: z.number().nullable(),
   validation_status: z.string(),
-  review_required: z.boolean(),
-  review_reason: z.string().nullable(),
-  source_evidence_text: z.string().nullable(),
   source_page: z.number().nullable(),
-  source_bbox_json: z.unknown().nullable(),
 });
 
 const technicalReviewCaseSchema = z.object({
@@ -150,10 +146,9 @@ const technicalReviewCaseSchema = z.object({
 
 const generationReadinessSchema = z
   .object({
-    profile_code: z.string().nullable().optional(),
+    profile_id: z.string().nullable().optional(),
     famille_code: z.string().nullable().optional(),
     sous_famille_code: z.string().nullable().optional(),
-    channel_code: z.string().nullable().optional(),
     ready: z.boolean().optional(),
     blocking_count: z.number().optional(),
     required_fields: z.array(z.string()).optional(),
@@ -191,8 +186,6 @@ export const startTechnicalIngestionResponseSchema = z.object({
   sources: z.array(technicalSourceSchema),
   reused_existing_run: z.boolean(),
 });
-
-export const replaceTechnicalSourcesLotResponseSchema = startTechnicalIngestionResponseSchema;
 
 const resolveTechnicalReviewCaseRequestSchema = z.object({
   action: technicalReviewResolutionActionSchema,
@@ -254,9 +247,7 @@ export type UploadTechnicalSourcesResponse = z.infer<
 export type StartTechnicalIngestionResponse = z.infer<
   typeof startTechnicalIngestionResponseSchema
 >;
-export type ReplaceTechnicalSourcesLotResponse = z.infer<
-  typeof replaceTechnicalSourcesLotResponseSchema
->;
+export type ReplaceTechnicalSourcesLotResponse = StartTechnicalIngestionResponse;
 export type ResolveTechnicalReviewCaseRequest = z.infer<
   typeof resolveTechnicalReviewCaseRequestSchema
 >;

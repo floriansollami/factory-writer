@@ -5,6 +5,7 @@ import { type FormEvent, useEffect, useId, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardTitle } from "@/components/ui/card";
+import { technicalFactLabelDescription } from "@/features/product-sheets/TechnicalExtractionResultsDisclosure";
 import type {
   TechnicalReviewCase,
   TechnicalReviewResolutionAction,
@@ -14,6 +15,7 @@ import {
   technicalDocumentTypeLabel,
 } from "@/features/product-sheets/productSheetUtils";
 import { resolveTechnicalReviewCase } from "@/lib/api";
+import { cn } from "@/lib/utils";
 
 const DOCUMENT_TYPE_OPTIONS = [
   "TECHNICAL_SHEET",
@@ -33,6 +35,15 @@ type ReviewDecisionState = {
   correctedUnit: string;
   selectedCandidateId: string;
   comment: string;
+};
+
+type ReviewCandidateOption = {
+  id: string;
+  normalizedValue: string | null;
+  reason: string | null;
+  scoreLabel: string;
+  sourceLabel: string;
+  value: string;
 };
 
 export function TechnicalReviewCasesPanel({
@@ -139,6 +150,7 @@ export function TechnicalReviewCasesPanel({
         }}
         open={selectedCase !== null}
         productId={productId}
+        relatedReviewCases={relatedReviewCases(selectedCase, reviewCases)}
         reviewCase={selectedCase}
       />
     </>
@@ -149,15 +161,18 @@ export function ResolveTechnicalReviewCaseDialog({
   open,
   onOpenChange,
   productId,
+  relatedReviewCases = [],
   reviewCase,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   productId: string;
+  relatedReviewCases?: TechnicalReviewCase[];
   reviewCase: TechnicalReviewCase | null;
 }) {
   const titleId = useId();
   const queryClient = useQueryClient();
+  const relatedReviewCaseKey = relatedReviewCases.map((item) => item.id).join("|");
   const isClassificationCase =
     reviewCase !== null && isClassificationReviewCase(reviewCase);
   const canApproveDetectedClassification =
@@ -175,21 +190,28 @@ export function ResolveTechnicalReviewCaseDialog({
         throw new Error("Point de revue introuvable.");
       }
 
-      return resolveTechnicalReviewCase(productId, reviewCase.id, {
-        action: decision.action,
-        resolvedBy: "admin",
-        correctedValue:
-          decision.action === "CORRECT_VALUE" ? emptyToNull(decision.correctedValue) : null,
-        correctedUnit:
-          decision.action === "CORRECT_VALUE" && !isClassificationReviewCase(reviewCase)
-            ? emptyToNull(decision.correctedUnit)
-            : null,
-        selectedCandidateId:
-          decision.action === "APPROVE_DETECTED_VALUE"
-            ? emptyToNull(decision.selectedCandidateId)
-            : null,
-        comment: emptyToNull(decision.comment),
-      });
+      const targetCases = resolutionTargetCases(reviewCase, relatedReviewCases);
+      let lastResult = null;
+
+      for (const targetCase of targetCases) {
+        lastResult = await resolveTechnicalReviewCase(productId, targetCase.id, {
+          action: decision.action,
+          resolvedBy: "admin",
+          correctedValue:
+            decision.action === "CORRECT_VALUE" ? emptyToNull(decision.correctedValue) : null,
+          correctedUnit:
+            decision.action === "CORRECT_VALUE" && !isClassificationReviewCase(reviewCase)
+              ? emptyToNull(decision.correctedUnit)
+              : null,
+          selectedCandidateId:
+            decision.action === "APPROVE_DETECTED_VALUE"
+              ? emptyToNull(decision.selectedCandidateId)
+              : null,
+          comment: emptyToNull(decision.comment),
+        });
+      }
+
+      return lastResult;
     },
     onSuccess: async () => {
       await Promise.all([
@@ -205,13 +227,15 @@ export function ResolveTechnicalReviewCaseDialog({
       return;
     }
 
+    const targetCases =
+      reviewCase === null ? [] : resolutionTargetCases(reviewCase, relatedReviewCases);
     setDecision({
       action:
         isClassificationReviewCase(reviewCase) &&
         !isRoutableDocumentType(reviewCase?.detected_value)
-          ? "REQUEST_NEW_DOCUMENT"
+            ? "REQUEST_NEW_DOCUMENT"
           : !isClassificationReviewCase(reviewCase) &&
-              firstReviewCandidateId(reviewCase) === "" &&
+              firstReviewCandidateIdForCases(targetCases) === "" &&
               reviewCase?.detected_value === null
             ? "CORRECT_VALUE"
           : "APPROVE_DETECTED_VALUE",
@@ -219,11 +243,11 @@ export function ResolveTechnicalReviewCaseDialog({
         ? nextRoutableDocumentType(reviewCase?.detected_value)
         : "",
       correctedUnit: "",
-      selectedCandidateId: firstReviewCandidateId(reviewCase),
+      selectedCandidateId: firstReviewCandidateIdForCases(targetCases),
       comment: "",
     });
     mutation.reset();
-  }, [open, reviewCase?.id]);
+  }, [open, reviewCase?.id, relatedReviewCaseKey]);
 
   if (!open || reviewCase === null) {
     return null;
@@ -232,12 +256,21 @@ export function ResolveTechnicalReviewCaseDialog({
   const classificationMetadata = isClassificationCase
     ? getClassificationReviewMetadata(reviewCase)
     : null;
-  const candidateOptions = getReviewCandidateOptions(reviewCase);
+  const candidateOptions = getReviewCandidateOptionsForCases(
+    resolutionTargetCases(reviewCase, relatedReviewCases),
+  );
+  const reviewThreshold = reviewCaseThreshold(reviewCase);
   const isBlockingCase = reviewCase.severity === "BLOCKING";
   const isContradictionCase = reviewCase.case_type === "CONTRADICTION";
   const canApproveDetectedFact =
     !isClassificationCase &&
     (candidateOptions.length > 0 || reviewCase.detected_value !== null);
+  const fieldContext = reviewCase.field_name
+    ? technicalFactLabelDescription(
+        reviewCase.field_name,
+        reviewCaseDocumentType(reviewCase),
+      )
+    : null;
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -246,13 +279,13 @@ export function ResolveTechnicalReviewCaseDialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 grid place-items-center bg-[rgba(23,49,36,0.42)] px-4 py-6 backdrop-blur-sm"
+      className="fixed inset-0 z-50 grid place-items-center bg-[rgba(23,49,36,0.42)] px-4 py-3 backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
       aria-labelledby={titleId}
     >
-      <div className="w-full max-w-xl overflow-hidden rounded-[2rem] bg-[var(--color-surface-card)] shadow-[0_28px_80px_rgba(27,28,26,0.24)]">
-        <div className="flex items-start justify-between gap-6 border-b border-[var(--color-stone)] px-6 py-5">
+      <div className="max-h-[96vh] w-full max-w-2xl overflow-hidden rounded-[2rem] bg-[var(--color-surface-card)] shadow-[0_28px_80px_rgba(27,28,26,0.24)]">
+        <div className="flex items-start justify-between gap-6 border-b border-[var(--color-stone)] px-6 py-4">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--color-teak)]">
               Décision technique
@@ -274,99 +307,169 @@ export function ResolveTechnicalReviewCaseDialog({
           </button>
         </div>
 
-        <form className="grid gap-5 px-6 py-6" onSubmit={submit}>
-          <div className="rounded-[1.25rem] bg-[var(--color-surface-raised)]/65 p-4 text-sm leading-6 text-[var(--color-muted)]">
-            <AlertTriangle className="mb-2 size-5 text-[var(--color-teak)]" />
-            {reviewCase.description}
-            {classificationMetadata !== null ? (
-              <dl className="mt-3 grid grid-cols-2 gap-2 text-xs text-[var(--color-ink)]">
-                <div className="rounded-xl bg-white/70 px-3 py-2">
-                  <dt className="font-bold uppercase tracking-[0.12em] text-[var(--color-muted)]">
-                    Score
-                  </dt>
-                  <dd className="mt-1 font-semibold">
-                    {formatConfidence(classificationMetadata.confidence)}
-                  </dd>
+        <form className="grid max-h-[calc(96vh-5rem)] gap-3 overflow-y-auto px-6 py-4" onSubmit={submit}>
+          <div className="grid gap-3">
+            <div className="rounded-[1.25rem] bg-[var(--color-error-soft)]/35 p-3 text-sm leading-5 text-[var(--color-muted)]">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="mt-0.5 size-5 shrink-0 text-[var(--color-error)]" />
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-[0.14em] text-[var(--color-error)]">
+                    Problème
+                  </p>
+                  <p className="mt-1 font-semibold text-[var(--color-ink)]">
+                    {reviewCase.description}
+                    {reviewThreshold !== null ? (
+                      <>
+                        {" "}
+                        Seuil requis : {formatConfidence(reviewThreshold)}.
+                      </>
+                    ) : null}
+                  </p>
                 </div>
-                <div className="rounded-xl bg-white/70 px-3 py-2">
-                  <dt className="font-bold uppercase tracking-[0.12em] text-[var(--color-muted)]">
-                    Seuil
-                  </dt>
-                  <dd className="mt-1 font-semibold">
-                    {formatConfidence(classificationMetadata.threshold)}
-                  </dd>
-                </div>
-              </dl>
+              </div>
+              {classificationMetadata !== null ? (
+                <dl className="mt-3 grid grid-cols-2 gap-2 text-xs text-[var(--color-ink)]">
+                  <div className="rounded-xl bg-white/70 px-3 py-2">
+                    <dt className="font-bold uppercase tracking-[0.12em] text-[var(--color-muted)]">
+                      Score
+                    </dt>
+                    <dd className="mt-1 font-semibold">
+                      {formatConfidence(classificationMetadata.confidence)}
+                    </dd>
+                  </div>
+                  <div className="rounded-xl bg-white/70 px-3 py-2">
+                    <dt className="font-bold uppercase tracking-[0.12em] text-[var(--color-muted)]">
+                      Seuil
+                    </dt>
+                    <dd className="mt-1 font-semibold">
+                      {formatConfidence(classificationMetadata.threshold)}
+                    </dd>
+                  </div>
+                </dl>
+              ) : null}
+            </div>
+            {fieldContext !== null ? (
+              <div className="rounded-[1.25rem] bg-[var(--color-surface-raised)]/65 p-3 text-sm leading-5">
+                <p className="text-xs font-bold uppercase tracking-[0.14em] text-[var(--color-muted)]">
+                  Contexte du label
+                </p>
+                <p className="mt-2 font-semibold text-[var(--color-ink)]">
+                  {reviewCase.field_name}
+                </p>
+                <p className="mt-1 text-[var(--color-muted)]">
+                  {fieldContext}
+                </p>
+              </div>
             ) : null}
           </div>
 
-          <label className="grid gap-2">
+          <div className="grid gap-2">
             <span className="text-xs font-bold uppercase tracking-[0.13em] text-[var(--color-muted)]">
               Décision
             </span>
-            <select
-              className={inputClassName}
-              onChange={(event) =>
-                setDecision((current) => ({
-                  ...current,
-                  action: event.target.value as TechnicalReviewResolutionAction,
-                }))
-              }
-              value={decision.action}
-            >
+            <div className="grid gap-2">
+              {(isClassificationCase ? canApproveDetectedClassification : canApproveDetectedFact) ? (
+                <DecisionCard
+                  checked={decision.action === "APPROVE_DETECTED_VALUE"}
+                  label={
+                    isClassificationCase
+                      ? "Confirmer le type de document"
+                      : isContradictionCase && candidateOptions.length > 0
+                        ? "Choisir une valeur détectée"
+                        : "Valider une valeur détectée"
+                  }
+                  onSelect={() =>
+                    setDecision((current) => ({
+                      ...current,
+                      action: "APPROVE_DETECTED_VALUE",
+                      selectedCandidateId:
+                        current.selectedCandidateId ||
+                        firstReviewCandidateIdForCases(
+                          resolutionTargetCases(reviewCase, relatedReviewCases),
+                        ),
+                    }))
+                  }
+                />
+              ) : null}
+              <DecisionCard
+                checked={decision.action === "CORRECT_VALUE"}
+                label={isClassificationCase ? "Corriger le type" : "Corriger manuellement"}
+                onSelect={() =>
+                  setDecision((current) => ({
+                    ...current,
+                    action: "CORRECT_VALUE",
+                  }))
+                }
+              />
+              {!isClassificationCase && !isBlockingCase ? (
+                <DecisionCard
+                  checked={decision.action === "REJECT_VALUE"}
+                  label="Écarter la valeur"
+                  onSelect={() =>
+                    setDecision((current) => ({
+                      ...current,
+                      action: "REJECT_VALUE",
+                    }))
+                  }
+                />
+              ) : null}
               {isClassificationCase ? (
-                <>
-                  {canApproveDetectedClassification ? (
-                    <option value="APPROVE_DETECTED_VALUE">
-                      Confirmer le type de document
-                    </option>
-                  ) : null}
-                  <option value="CORRECT_VALUE">Corriger le type</option>
-                  <option value="REQUEST_NEW_DOCUMENT">Demander un nouveau PDF</option>
-                </>
-              ) : (
-                <>
-                  {canApproveDetectedFact ? (
-                    <option value="APPROVE_DETECTED_VALUE">
-                      {isContradictionCase && candidateOptions.length > 0
-                        ? "Choisir une valeur candidate"
-                        : "Accepter la valeur détectée"}
-                    </option>
-                  ) : null}
-                  <option value="CORRECT_VALUE">Corriger la valeur</option>
-                  {!isBlockingCase ? (
-                    <option value="REJECT_VALUE">Écarter la valeur</option>
-                  ) : null}
-                  <option value="REQUEST_NEW_DOCUMENT">Demander un nouveau document</option>
-                </>
-              )}
-            </select>
-          </label>
+                <DecisionCard
+                  checked={decision.action === "REQUEST_NEW_DOCUMENT"}
+                  label="Demander un nouveau PDF"
+                  onSelect={() =>
+                    setDecision((current) => ({
+                      ...current,
+                      action: "REQUEST_NEW_DOCUMENT",
+                    }))
+                  }
+                />
+              ) : null}
+            </div>
+          </div>
 
           {decision.action === "APPROVE_DETECTED_VALUE" &&
           !isClassificationCase &&
           candidateOptions.length > 0 ? (
-            <label className="grid gap-2">
+            <div className="grid gap-2">
               <span className="text-xs font-bold uppercase tracking-[0.13em] text-[var(--color-muted)]">
-                Valeur candidate
+                Valeur à retenir
               </span>
-              <select
-                className={inputClassName}
-                onChange={(event) =>
-                  setDecision((current) => ({
-                    ...current,
-                    selectedCandidateId: event.target.value,
-                  }))
-                }
-                value={decision.selectedCandidateId}
-              >
+              <div className="grid gap-2">
                 {candidateOptions.map((candidate) => (
-                  <option key={candidate.id} value={candidate.id}>
-                    {candidate.label}
-                  </option>
+                  <button
+                    key={candidate.id}
+                    type="button"
+                    className={cn(
+                      "rounded-2xl border bg-white px-4 py-3 text-left transition",
+                      decision.selectedCandidateId === candidate.id
+                        ? "border-[var(--color-forest)] shadow-[0_0_0_4px_rgba(148,164,132,0.22)]"
+                        : "border-[var(--color-stone)] hover:border-[var(--color-sage)]",
+                    )}
+                    onClick={() =>
+                      setDecision((current) => ({
+                        ...current,
+                        selectedCandidateId: candidate.id,
+                      }))
+                    }
+                  >
+                    <span className="block text-sm font-semibold leading-5 text-[var(--color-ink)]">
+                      {candidate.value}
+                    </span>
+                    <span className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs font-semibold text-[var(--color-muted)]">
+                      <span>{candidate.sourceLabel}</span>
+                      <span>{candidate.scoreLabel}</span>
+                      {candidate.normalizedValue ? (
+                        <span>Normalisé : {candidate.normalizedValue}</span>
+                      ) : null}
+                      {candidate.reason ? (
+                        <span className="text-[var(--color-teak)]">{candidate.reason}</span>
+                      ) : null}
+                    </span>
+                  </button>
                 ))}
-              </select>
-            </label>
+              </div>
+            </div>
           ) : null}
 
           {decision.action === "CORRECT_VALUE" && isClassificationCase ? (
@@ -453,7 +556,7 @@ export function ResolveTechnicalReviewCaseDialog({
             </div>
           ) : null}
 
-          <div className="flex flex-wrap justify-end gap-3 border-t border-[var(--color-stone)] pt-5">
+          <div className="flex flex-wrap justify-end gap-3 border-t border-[var(--color-stone)] pt-3">
             <Button type="button" variant="secondary" onClick={() => onOpenChange(false)}>
               Annuler
             </Button>
@@ -469,6 +572,48 @@ export function ResolveTechnicalReviewCaseDialog({
         </form>
       </div>
     </div>
+  );
+}
+
+function DecisionCard({
+  checked,
+  label,
+  onSelect,
+}: {
+  checked: boolean;
+  label: string;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className={cn(
+        "rounded-2xl border bg-white px-4 py-2.5 text-left transition",
+        checked
+          ? "border-[var(--color-forest)] shadow-[0_0_0_4px_rgba(148,164,132,0.22)]"
+          : "border-[var(--color-stone)] hover:border-[var(--color-sage)]",
+      )}
+      onClick={onSelect}
+    >
+      <span className="flex items-start gap-3">
+        <span
+          className={cn(
+            "mt-0.5 grid size-4 shrink-0 place-items-center rounded-full border",
+            checked ? "border-[var(--color-forest)]" : "border-[var(--color-muted)]/45",
+          )}
+          aria-hidden="true"
+        >
+          {checked ? (
+            <span className="size-2 rounded-full bg-[var(--color-forest)]" />
+          ) : null}
+        </span>
+        <span>
+          <span className="block text-sm font-semibold text-[var(--color-ink)]">
+            {label}
+          </span>
+        </span>
+      </span>
+    </button>
   );
 }
 
@@ -499,9 +644,67 @@ function getClassificationReviewMetadata(
   };
 }
 
-function getReviewCandidateOptions(
+function reviewCaseThreshold(reviewCase: TechnicalReviewCase) {
+  const metadata = reviewCase.metadata_json;
+  if (metadata === null || typeof metadata !== "object" || Array.isArray(metadata)) {
+    return null;
+  }
+
+  return toNullableNumber((metadata as Record<string, unknown>).threshold);
+}
+
+function relatedReviewCases(
   reviewCase: TechnicalReviewCase | null,
-): Array<{ id: string; label: string }> {
+  reviewCases: TechnicalReviewCase[],
+) {
+  if (reviewCase === null || reviewCase.field_name === null) {
+    return reviewCase === null ? [] : [reviewCase];
+  }
+
+  const relatedCases = reviewCases.filter(
+    (candidateReviewCase) =>
+      candidateReviewCase.field_name === reviewCase.field_name &&
+      candidateReviewCase.status === reviewCase.status &&
+      !isClassificationReviewCase(candidateReviewCase),
+  );
+
+  return relatedCases.length > 0 ? relatedCases : [reviewCase];
+}
+
+function resolutionTargetCases(
+  reviewCase: TechnicalReviewCase,
+  relatedCases: TechnicalReviewCase[],
+) {
+  if (isClassificationReviewCase(reviewCase)) {
+    return [reviewCase];
+  }
+
+  const openRelatedCases = relatedCases.filter(
+    (candidateReviewCase) =>
+      candidateReviewCase.field_name === reviewCase.field_name &&
+      ["A_TRAITER", "DOCUMENT_A_REMPLACER"].includes(candidateReviewCase.status),
+  );
+
+  return openRelatedCases.length > 0 ? openRelatedCases : [reviewCase];
+}
+
+function getReviewCandidateOptionsForCases(
+  reviewCases: TechnicalReviewCase[],
+): ReviewCandidateOption[] {
+  const candidatesById = new Map<string, ReviewCandidateOption>();
+
+  for (const reviewCase of reviewCases) {
+    for (const candidate of getReviewCandidateOptions(reviewCase)) {
+      candidatesById.set(candidate.id, candidate);
+    }
+  }
+
+  return Array.from(candidatesById.values()).sort(
+    (left, right) => candidateScoreValue(right) - candidateScoreValue(left),
+  );
+}
+
+function getReviewCandidateOptions(reviewCase: TechnicalReviewCase | null): ReviewCandidateOption[] {
   const metadata = reviewCase?.metadata_json;
   if (metadata === null || typeof metadata !== "object" || Array.isArray(metadata)) {
     return [];
@@ -514,10 +717,7 @@ function getReviewCandidateOptions(
       return [];
     }
     return [
-      {
-        id: candidateId,
-        label: reviewCandidateLabel(metadata as Record<string, unknown>),
-      },
+      reviewCandidateOption(candidateId, metadata as Record<string, unknown>),
     ];
   }
 
@@ -531,28 +731,55 @@ function getReviewCandidateOptions(
       if (typeof candidateId !== "string" || candidateId.length === 0) {
         return null;
       }
-      return {
-        id: candidateId,
-        label: reviewCandidateLabel(candidateRecord),
-      };
+      return reviewCandidateOption(candidateId, candidateRecord);
     })
-    .filter((candidate): candidate is { id: string; label: string } => candidate !== null);
+    .filter((candidate): candidate is ReviewCandidateOption => candidate !== null);
 }
 
-function firstReviewCandidateId(reviewCase: TechnicalReviewCase | null): string {
-  return getReviewCandidateOptions(reviewCase)[0]?.id ?? "";
+function firstReviewCandidateIdForCases(reviewCases: TechnicalReviewCase[]): string {
+  return getReviewCandidateOptionsForCases(reviewCases)[0]?.id ?? "";
 }
 
-function reviewCandidateLabel(candidate: Record<string, unknown>): string {
-  const value =
-    stringValue(candidate.normalized_value) ??
+function reviewCandidateOption(
+  candidateId: string,
+  candidate: Record<string, unknown>,
+): ReviewCandidateOption {
+  const rawValue =
     stringValue(candidate.raw_value) ??
     stringValue(candidate.detected_value) ??
+    stringValue(candidate.normalized_value) ??
     "Valeur détectée";
+  const normalizedValue = stringValue(candidate.normalized_value);
   const unit = stringValue(candidate.unit);
-  const score = toNullableNumber(candidate.confidence ?? candidate.extractor_confidence);
-  const scoreLabel = score === null ? "score non renseigné" : formatConfidence(score);
-  return `${value}${unit && !value.includes(unit) ? ` ${unit}` : ""} · ${scoreLabel}`;
+  const confidence = toNullableNumber(candidate.confidence ?? candidate.extractor_confidence);
+  const threshold = toNullableNumber(candidate.threshold);
+  const sourceDocumentType = stringValue(candidate.source_document_type);
+  return {
+    id: candidateId,
+    normalizedValue:
+      normalizedValue !== null && normalizedValue !== rawValue ? normalizedValue : null,
+    reason:
+      confidence !== null && threshold !== null && confidence < threshold
+        ? `Sous le seuil ${formatConfidence(threshold)}`
+        : null,
+    scoreLabel: confidence === null ? "Score non renseigné" : formatConfidence(confidence),
+    sourceLabel: technicalDocumentTypeLabel(sourceDocumentType),
+    value: `${rawValue}${unit && !rawValue.includes(unit) ? ` ${unit}` : ""}`,
+  };
+}
+
+function reviewCaseDocumentType(reviewCase: TechnicalReviewCase) {
+  const metadata = reviewCase.metadata_json;
+  if (metadata === null || typeof metadata !== "object" || Array.isArray(metadata)) {
+    return null;
+  }
+
+  return stringValue((metadata as Record<string, unknown>).source_document_type);
+}
+
+function candidateScoreValue(candidate: ReviewCandidateOption): number {
+  const match = /^(\d+(?:\.\d+)?) %$/.exec(candidate.scoreLabel);
+  return match ? Number(match[1]) : -1;
 }
 
 function stringValue(value: unknown): string | null {
