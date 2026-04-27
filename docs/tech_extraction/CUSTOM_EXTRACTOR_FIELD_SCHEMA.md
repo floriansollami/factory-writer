@@ -180,7 +180,7 @@ Pour le POC Axolotl, tous les labels ci-dessous sont configurés ainsi :
 | Option | Valeur retenue | Raison |
 | --- | --- | --- |
 | `Method` | `Extract` | On extrait uniquement ce qui est écrit dans les PDFs. `Derive` introduirait une logique d'inférence ou de calcul, moins adaptée à notre objectif zero-hallucination. |
-| `Data type` | `Plain text` | On préserve les unités, tolérances, codes, noms de certifications et formulations source : `220 cm`, `11 N·m`, `FSC Mix Credit`, `2 adultes`, `30 à 40 min`. Le backend normalise ensuite. |
+| `Data type` | `Plain text` | On préserve les unités, tolérances, codes, noms de certifications et formulations source : `220 cm`, `11 N·m`, `FSC Mix Credit`, `2 adultes`, `30 à 40 min`. Le backend normalise seulement les champs dont le profil demande un contrôle déterministe. |
 | `Occurrence` | `Optional multiple` | Les documents industriels sont hétérogènes : un champ peut être absent, présent une fois ou répété. Cela évite de forcer un champ manquant et permet plusieurs matériaux, certifications, pièces, étapes ou contraintes. |
 
 Ce choix est volontairement conservateur. Quand on aura assez de résultats terrain, on pourra durcir certains labels :
@@ -233,7 +233,7 @@ Exemple pour une table de jardin :
 | `dimension_height` | requis | Fiche incomplète sans dimensions |
 | `material_primary` | requis | Argument produit central |
 | `finish_primary` | requis | Description produit et conseils d'entretien |
-| `usage_capacity` | conditionnel | Requis pour table ou assise, pas forcément pour tous les produits |
+| `usage_capacity` | conditionnel | Requis pour table ou assise, pas forcément pour tous les produits. L'extractor renvoie un texte source ; seul le profil produit décide si un contrôle numérique doit être appliqué. |
 | `eco_certifications` | optionnel mais contrôlé | Ne s'écrit que si une preuve valide est présente |
 | `technical_claim_limits` | requis si claims sensibles | Empêche les promesses interdites ou non prouvées |
 | `assembly_constraints` | conditionnel | Requis si la fiche parle de montage ou de contraintes d'assemblage |

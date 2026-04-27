@@ -60,12 +60,12 @@ flowchart TD
       T12 --> T12A["Appeler Document AI Custom Extractor<br/>selon le type de fichier"]
       T12A --> T12B["Mettre <i>document_ingestion_run</i><br/>à EN_COURS / FACT_EXTRACTION<br/>avec extraction_steps_json"]
       T12B --> T13["Persister les facts candidats"]
-      T13 --> T13A["Créer les <i>technical_fact_candidate</i><br/>intermédiaires"]
+      T13 --> T13A["Créer une ligne <i>technical_fact_candidate</i><br/>pour chaque candidat extrait"]
       T13A --> T13B["Mettre <i>document_ingestion_run</i><br/>à EN_COURS / DETERMINISTIC_VALIDATION"]
-      T13B --> T14["Valider la readiness génération"]
-      T14 --> T14A["Charger <i>generation_readiness_profile</i>"]
+      T13B --> T14["Contrôler les facts candidats"]
+      T14 --> T14A["Charger le profil de prérequis fiche produit<br/><i>product_sheet_requirement_profile</i>"]
       T14A --> T14B["Contrôler champs requis,<br/>confiance et bornes réalistes"]
-      T14B --> T14C["Retourner facts promouvables<br/>et review cases"]
+      T14B --> T14C["Retourner facts promouvables<br/>et blocages à revoir"]
       T14C --> T18["Promouvoir les faits techniques"]
       T18 --> T18A["Créer les <i>technical_fact_candidate</i><br/>finalisés"]
       T18A --> T18B["Créer les <i>technical_fact</i><br/>validés SYSTEM"]
@@ -80,7 +80,9 @@ flowchart TD
       T17B --> T17C["Si dernier blocage : mettre <i>document_ingestion_run</i><br/>à TERMINE / DONE<br/>et <i>document_collection</i> à TERMINE"]
       T17C -- "signal Temporal<br/><i>review_case_resolved</i>" --> T17D{"open_review_case_count = 0 ?"}
       T17D -- "Non" --> T16
-      T17D -- "Oui" --> T19["Faits techniques prêts<br/>TECHNICAL_FACTS_READY"]
+      T17D -- "Oui" --> T17E["Finaliser la revue technique"]
+      T17E --> T17F["Vérifier que tous les facts requis<br/>sont présents"]
+      T17F --> T19["Faits techniques prêts<br/>TECHNICAL_FACTS_READY"]
       T15 -- "Non" --> T19
     end
 
@@ -138,10 +140,10 @@ flowchart TD
   classDef note fill:#FFF7ED,stroke:#EA580C,stroke-width:1.2px,color:#7C2D12;
 
   class SG1,P3,W0,R0,R9 workflow;
-  class SG2,SG3,SG4,SG5,SG6,SG9,SG10,P4,T6,T7,T8P,T8H,T12,T13,T14,T18,R1,R2,R3,R4,R7 activity;
+  class SG2,SG3,SG4,SG5,SG6,SG9,SG10,P4,T6,T7,T8P,T8H,T12,T13,T14,T17E,T18,R1,R2,R3,R4,R7 activity;
   class SG0,P0,T0,T3,T8U,T17,C0 api;
   class SG7,PQ,P5,T8E,T16,R6 wait;
-  class C2,P1,TGCS,T1,T2,T4,T4B,T6B,T8,T8C,T8F,T12B,T13A,T13B,T14A,T17A,T17B,T17C,T18A,T18B,T18C,T18D,T18E storage;
+  class C2,P1,TGCS,T1,T2,T4,T4B,T6B,T8,T8C,T8F,T12B,T13A,T13B,T14A,T17A,T17B,T17C,T17F,T18A,T18B,T18C,T18D,T18E storage;
   class SG8,T8B,T8S,T15,T17D,R5 decision;
   class T8N note;
   style ANALYSIS_STYLE_ROW fill:transparent,stroke:transparent,color:transparent
