@@ -39,10 +39,10 @@ type ReviewDecisionState = {
 
 type ReviewCandidateOption = {
   id: string;
-  normalizedValue: string | null;
   reason: string | null;
   scoreLabel: string;
   sourceLabel: string;
+  sourceValue: string | null;
   value: string;
 };
 
@@ -200,7 +200,9 @@ export function ResolveTechnicalReviewCaseDialog({
           correctedValue:
             decision.action === "CORRECT_VALUE" ? emptyToNull(decision.correctedValue) : null,
           correctedUnit:
-            decision.action === "CORRECT_VALUE" && !isClassificationReviewCase(reviewCase)
+            decision.action === "CORRECT_VALUE" &&
+            !isClassificationReviewCase(reviewCase) &&
+            shouldShowCorrectedUnitInput(reviewCase)
               ? emptyToNull(decision.correctedUnit)
               : null,
           selectedCandidateId:
@@ -259,6 +261,7 @@ export function ResolveTechnicalReviewCaseDialog({
   const candidateOptions = getReviewCandidateOptionsForCases(
     resolutionTargetCases(reviewCase, relatedReviewCases),
   );
+  const showCorrectedUnitInput = shouldShowCorrectedUnitInput(reviewCase);
   const reviewThreshold = reviewCaseThreshold(reviewCase);
   const isBlockingCase = reviewCase.severity === "BLOCKING";
   const isContradictionCase = reviewCase.case_type === "CONTRADICTION";
@@ -457,13 +460,11 @@ export function ResolveTechnicalReviewCaseDialog({
                       {candidate.value}
                     </span>
                     <span className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs font-semibold text-[var(--color-muted)]">
-                      <span>{candidate.sourceLabel}</span>
-                      <span>{candidate.scoreLabel}</span>
-                      {candidate.normalizedValue ? (
-                        <span>Normalisé : {candidate.normalizedValue}</span>
-                      ) : null}
-                      {candidate.reason ? (
-                        <span className="text-[var(--color-teak)]">{candidate.reason}</span>
+                      <span>
+                        {candidate.sourceLabel} - {candidate.scoreLabel}
+                      </span>
+                      {candidate.sourceValue ? (
+                        <span>Source PDF : {candidate.sourceValue}</span>
                       ) : null}
                     </span>
                   </button>
@@ -497,39 +498,54 @@ export function ResolveTechnicalReviewCaseDialog({
           ) : null}
 
           {decision.action === "CORRECT_VALUE" && !isClassificationCase ? (
-            <div className="grid grid-cols-2 gap-4 max-md:grid-cols-1">
-              <label className="grid gap-2">
+            <div
+              className={cn(
+                "grid gap-3",
+                showCorrectedUnitInput
+                  ? "grid-cols-[minmax(0,1fr)_10rem] items-start max-md:grid-cols-1"
+                  : "",
+              )}
+            >
+              <label className="grid min-w-0 gap-2">
                 <span className="text-xs font-bold uppercase tracking-[0.13em] text-[var(--color-muted)]">
-                  Valeur corrigée
+                  Valeur à retenir
                 </span>
                 <input
-                  className={inputClassName}
+                  className={`${inputClassName} h-12 w-full`}
                   onChange={(event) =>
                     setDecision((current) => ({
                       ...current,
                       correctedValue: event.target.value,
                     }))
                   }
-                  placeholder={reviewCase.suggested_value ?? reviewCase.detected_value ?? "Valeur"}
+                  placeholder={correctedValuePlaceholder(reviewCase)}
                   value={decision.correctedValue}
                 />
               </label>
-              <label className="grid gap-2">
-                <span className="text-xs font-bold uppercase tracking-[0.13em] text-[var(--color-muted)]">
-                  Unité
-                </span>
-                <input
-                  className={inputClassName}
-                  onChange={(event) =>
-                    setDecision((current) => ({
-                      ...current,
-                      correctedUnit: event.target.value,
-                    }))
-                  }
-                  placeholder={reviewCase.suggested_unit ?? reviewCase.detected_unit ?? "cm"}
-                  value={decision.correctedUnit}
-                />
-              </label>
+              {showCorrectedUnitInput ? (
+                <label className="grid min-w-0 gap-2">
+                  <span className="text-xs font-bold uppercase tracking-[0.13em] text-[var(--color-muted)]">
+                    Unité
+                  </span>
+                  <select
+                    className={`${inputClassName} h-12 w-full`}
+                    onChange={(event) =>
+                      setDecision((current) => ({
+                        ...current,
+                        correctedUnit: event.target.value,
+                      }))
+                    }
+                    value={decision.correctedUnit}
+                  >
+                    <option value="">Dans la valeur</option>
+                    {correctedUnitOptions(reviewCase).map((unit) => (
+                      <option key={unit} value={unit}>
+                        {unit}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
             </div>
           ) : null}
 
@@ -619,6 +635,74 @@ function DecisionCard({
 
 const inputClassName =
   "rounded-2xl border border-[var(--color-stone)] bg-white px-4 text-sm font-semibold text-[var(--color-ink)] outline-none transition placeholder:text-[var(--color-muted)]/55 focus:border-[var(--color-forest)] focus:ring-4 focus:ring-[var(--color-sage-soft)]";
+
+function correctedValuePlaceholder(reviewCase: TechnicalReviewCase): string {
+  const fieldName = reviewCase.field_name ?? "";
+  if (fieldName.startsWith("dimension_") || fieldName === "component_dimensions") {
+    return "Ex. 220 cm";
+  }
+  if (fieldName === "weight") {
+    return "Ex. 42 kg";
+  }
+  if (fieldName === "max_torque") {
+    return "Ex. 6 N·m";
+  }
+  if (fieldName === "assembly_time") {
+    return "Ex. 35 min";
+  }
+  if (fieldName === "material_primary") {
+    return "Ex. teck massif Tectona grandis";
+  }
+
+  return "Saisir la valeur à retenir";
+}
+
+function shouldShowCorrectedUnitInput(reviewCase: TechnicalReviewCase): boolean {
+  if (reviewCase.suggested_unit !== null || reviewCase.detected_unit !== null) {
+    return true;
+  }
+
+  const fieldName = reviewCase.field_name ?? "";
+  return (
+    fieldName.startsWith("dimension_") ||
+    fieldName === "component_dimensions" ||
+    fieldName === "weight" ||
+    fieldName === "max_torque" ||
+    fieldName === "assembly_time" ||
+    fieldName === "clearance_or_tolerance"
+  );
+}
+
+function correctedUnitOptions(reviewCase: TechnicalReviewCase): string[] {
+  const fieldName = reviewCase.field_name ?? "";
+  const units = new Set<string>();
+
+  if (reviewCase.suggested_unit !== null) {
+    units.add(reviewCase.suggested_unit);
+  }
+  if (reviewCase.detected_unit !== null) {
+    units.add(reviewCase.detected_unit);
+  }
+
+  if (fieldName.startsWith("dimension_") || fieldName === "component_dimensions") {
+    units.add("cm");
+    units.add("mm");
+    units.add("m");
+  }
+  if (fieldName === "weight") {
+    units.add("kg");
+    units.add("g");
+  }
+  if (fieldName === "max_torque") {
+    units.add("N·m");
+  }
+  if (fieldName === "assembly_time") {
+    units.add("min");
+    units.add("h");
+  }
+
+  return Array.from(units);
+}
 
 function emptyToNull(value: string): string | null {
   const trimmed = value.trim();
@@ -751,20 +835,21 @@ function reviewCandidateOption(
     "Valeur détectée";
   const normalizedValue = stringValue(candidate.normalized_value);
   const unit = stringValue(candidate.unit);
+  const value = normalizedValue !== null ? withUnit(normalizedValue, unit) : withUnit(rawValue, unit);
+  const sourceValue = normalizedValue !== null && normalizedValue !== rawValue ? rawValue : null;
   const confidence = toNullableNumber(candidate.confidence ?? candidate.extractor_confidence);
   const threshold = toNullableNumber(candidate.threshold);
   const sourceDocumentType = stringValue(candidate.source_document_type);
   return {
     id: candidateId,
-    normalizedValue:
-      normalizedValue !== null && normalizedValue !== rawValue ? normalizedValue : null,
     reason:
       confidence !== null && threshold !== null && confidence < threshold
         ? `Sous le seuil ${formatConfidence(threshold)}`
         : null,
     scoreLabel: confidence === null ? "Score non renseigné" : formatConfidence(confidence),
     sourceLabel: technicalDocumentTypeLabel(sourceDocumentType),
-    value: `${rawValue}${unit && !rawValue.includes(unit) ? ` ${unit}` : ""}`,
+    sourceValue,
+    value,
   };
 }
 
@@ -784,6 +869,10 @@ function candidateScoreValue(candidate: ReviewCandidateOption): number {
 
 function stringValue(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value : null;
+}
+
+function withUnit(value: string, unit: string | null): string {
+  return unit !== null && !value.includes(unit) ? `${value} ${unit}` : value;
 }
 
 function toNullableNumber(value: unknown): number | null {

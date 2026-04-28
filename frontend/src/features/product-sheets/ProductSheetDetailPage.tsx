@@ -13,7 +13,7 @@ import {
   Sparkles,
   UploadCloud,
 } from "lucide-react";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, type Ref, useEffect, useRef, useState } from "react";
 
 import { AxolotlLogo } from "@/components/brand/AxolotlLogo";
 import { Badge } from "@/components/ui/badge";
@@ -38,6 +38,7 @@ import type {
   TechnicalClassification,
   ProductOverview,
   ProductSheet,
+  ProductSheetGeneration,
   TechnicalRun,
   TechnicalReviewCase,
   TechnicalSource,
@@ -49,7 +50,13 @@ import {
   resolveProductFlowStep,
   technicalDocumentTypeLabel,
 } from "@/features/product-sheets/productSheetUtils";
-import { getProductOverview, listProducts, startTechnicalIngestion } from "@/lib/api";
+import {
+  generateProductSheet,
+  getProductSheetGenerationDebug,
+  getProductOverview,
+  listProducts,
+  startTechnicalIngestion,
+} from "@/lib/api";
 import { formatAdminDateTime } from "@/lib/dateTime";
 import { cn } from "@/lib/utils";
 
@@ -94,7 +101,7 @@ export function ProductSheetDetailPage({
     refetchInterval: (query) => {
       const overview = query.state.data;
 
-      return overview !== undefined && isProductAnalysisActive(overview.run) ? 3000 : false;
+      return overview !== undefined && shouldPollProductOverview(overview) ? 3000 : false;
     },
     retry: false,
   });
@@ -122,6 +129,25 @@ export function ProductSheetDetailPage({
                   kind: "TECHNICAL_DOSSIER",
                   statut: "EN_COURS",
                 },
+              }
+            : previous,
+      );
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["products"] }),
+        queryClient.invalidateQueries({ queryKey: ["product-overview", productId] }),
+      ]);
+    },
+  });
+  const generationMutation = useMutation({
+    mutationFn: () => generateProductSheet(productId),
+    onSuccess: async (result) => {
+      queryClient.setQueryData<ProductOverview>(
+        ["product-overview", productId],
+        (previous) =>
+          previous
+            ? {
+                ...previous,
+                product_sheet_generation: result.generation,
               }
             : previous,
       );
@@ -188,7 +214,10 @@ export function ProductSheetDetailPage({
           ) : (
             <ProductDetailWorkspace
               isStartingIngestion={startMutation.isPending}
+              generationError={generationMutation.error}
+              isGeneratingProductSheet={generationMutation.isPending}
               onBack={onBack}
+              onGenerateProductSheet={() => generationMutation.mutate()}
               onImportSources={() => {
                 setUploadDialogMode("upload");
                 setUploadDialogOpen(true);
@@ -218,8 +247,11 @@ export function ProductSheetDetailPage({
 }
 
 function ProductDetailWorkspace({
+  generationError,
+  isGeneratingProductSheet,
   isStartingIngestion,
   onBack,
+  onGenerateProductSheet,
   onImportSources,
   onOpenStyleGuide,
   onReplaceSources,
@@ -228,8 +260,11 @@ function ProductDetailWorkspace({
   product,
   startError,
 }: {
+  generationError: Error | null;
+  isGeneratingProductSheet: boolean;
   isStartingIngestion: boolean;
   onBack: () => void;
+  onGenerateProductSheet: () => void;
   onImportSources: () => void;
   onOpenStyleGuide: (returnTo?: string) => void;
   onReplaceSources: () => void;
@@ -276,10 +311,20 @@ function ProductDetailWorkspace({
         </Card>
       ) : null}
 
+      {generationError ? (
+        <Card className="mt-5 border border-[var(--color-error-soft)] bg-[var(--color-error-soft)]/35 p-4">
+          <p className="text-sm font-semibold text-[var(--color-error)]">
+            {generationError.message}
+          </p>
+        </Card>
+      ) : null}
+
       <ProductDetailStage
         hasCommercialSignals={hasCommercialSignals}
         hasStyleGuide={hasStyleGuide}
+        isGeneratingProductSheet={isGeneratingProductSheet}
         isStartingIngestion={isStartingIngestion}
+        onGenerateProductSheet={onGenerateProductSheet}
         onImportSources={onImportSources}
         onOpenStyleGuide={() => onOpenStyleGuide(returnTo)}
         onReplaceSources={onReplaceSources}
@@ -293,7 +338,9 @@ function ProductDetailWorkspace({
 function ProductDetailStage({
   hasCommercialSignals,
   hasStyleGuide,
+  isGeneratingProductSheet,
   isStartingIngestion,
+  onGenerateProductSheet,
   onImportSources,
   onOpenStyleGuide,
   onReplaceSources,
@@ -302,7 +349,9 @@ function ProductDetailStage({
 }: {
   hasCommercialSignals: boolean;
   hasStyleGuide: boolean;
+  isGeneratingProductSheet: boolean;
   isStartingIngestion: boolean;
+  onGenerateProductSheet: () => void;
   onImportSources: () => void;
   onOpenStyleGuide: () => void;
   onReplaceSources: () => void;
@@ -339,6 +388,8 @@ function ProductDetailStage({
   if (isProductAnalysisActive(overview.run)) {
     return (
       <TechnicalAnalysisDashboard
+        isGeneratingProductSheet={isGeneratingProductSheet}
+        onGenerateProductSheet={onGenerateProductSheet}
         onReplaceSources={onReplaceSources}
         overview={overview}
       />
@@ -353,11 +404,58 @@ function ProductDetailStage({
     return <CommercialSignalsWaitingDashboard overview={overview} />;
   }
 
-  if (overview.product_context_snapshot !== null) {
-    return <GenerationReadyDashboard overview={overview} />;
+  if (
+    overview.product_context_snapshot !== null &&
+    (isGeneratingProductSheet || overview.product_sheet_generation !== null)
+  ) {
+    return (
+      <ProductSheetGenerationDashboard
+        isGenerating={isGeneratingProductSheet}
+        onGenerateProductSheet={onGenerateProductSheet}
+        overview={overview}
+      />
+    );
   }
 
-  return <ContextPreparingDashboard overview={overview} />;
+  if (overview.run !== null) {
+    return (
+      <TechnicalAnalysisDashboard
+        isGeneratingProductSheet={isGeneratingProductSheet}
+        onGenerateProductSheet={onGenerateProductSheet}
+        onReplaceSources={onReplaceSources}
+        overview={overview}
+      />
+    );
+  }
+
+  return (
+    <TechnicalAnalysisDashboard
+      isGeneratingProductSheet={isGeneratingProductSheet}
+      onGenerateProductSheet={onGenerateProductSheet}
+      onReplaceSources={onReplaceSources}
+      overview={overview}
+    />
+  );
+}
+
+function shouldPollProductOverview(overview: ProductOverview) {
+  if (isProductAnalysisActive(overview.run)) {
+    return true;
+  }
+
+  if (overview.product_sheet_generation?.status === "EN_COURS") {
+    return true;
+  }
+
+  const hasOpenReviewCases = overview.review_cases.some((reviewCase) =>
+    ["A_TRAITER", "DOCUMENT_A_REMPLACER"].includes(reviewCase.status),
+  );
+
+  return (
+    overview.run?.statut === "TERMINE" &&
+    overview.product_context_snapshot === null &&
+    !hasOpenReviewCases
+  );
 }
 
 function StyleGuideRequiredDashboard({ onOpenStyleGuide }: { onOpenStyleGuide: () => void }) {
@@ -456,7 +554,7 @@ function TechnicalSourcesEmptyDashboard({ onImportSources }: { onImportSources: 
             <OnboardingStep
               icon={ShieldCheck}
               title="4. Corriger si besoin"
-              description="Les points ambigus sont traités avant d’assembler le contexte produit."
+              description="Les points ambigus sont traités avant la future génération."
             />
           </ol>
         </Card>
@@ -544,9 +642,13 @@ function TechnicalSourcesReadyDashboard({
 }
 
 function TechnicalAnalysisDashboard({
+  isGeneratingProductSheet,
+  onGenerateProductSheet,
   onReplaceSources,
   overview,
 }: {
+  isGeneratingProductSheet: boolean;
+  onGenerateProductSheet: () => void;
   onReplaceSources: () => void;
   overview: ProductOverview;
 }) {
@@ -557,6 +659,32 @@ function TechnicalAnalysisDashboard({
     (classification) => classification.is_blocking,
   );
   const hasBlockingClassifications = blockingClassifications.length > 0;
+  const canGenerateProductSheet =
+    overview.product_context_snapshot !== null && overview.product_sheet_generation === null;
+  const hasOpenReviewCases = overview.review_cases.some((reviewCase) =>
+    ["A_TRAITER", "DOCUMENT_A_REMPLACER"].includes(reviewCase.status),
+  );
+  const shouldFocusGenerationStep =
+    overview.product_sheet_generation === null && overview.facts.length > 0 && !hasOpenReviewCases;
+  const generationStepRef = useRef<HTMLLIElement | null>(null);
+  const hasFocusedGenerationStep = useRef(false);
+
+  useEffect(() => {
+    if (!shouldFocusGenerationStep) {
+      hasFocusedGenerationStep.current = false;
+      return;
+    }
+
+    if (hasFocusedGenerationStep.current) {
+      return;
+    }
+
+    hasFocusedGenerationStep.current = true;
+    window.setTimeout(() => {
+      generationStepRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      generationStepRef.current?.focus({ preventScroll: true });
+    }, 80);
+  }, [shouldFocusGenerationStep]);
 
   return (
     <>
@@ -581,7 +709,7 @@ function TechnicalAnalysisDashboard({
           <ol className="mt-7 space-y-4" aria-label="Étapes d’analyse des dossiers techniques">
             {steps.map((step) => (
               <ProductAnalysisStepItem
-                key={step.id}
+                key={`${step.id}-${shouldFocusGenerationStep ? "ready" : "active"}`}
                 classificationResults={
                   step.id === "document-classification" &&
                   overview.technical_classifications.length > 0
@@ -597,9 +725,9 @@ function TechnicalAnalysisDashboard({
                 }
                 extractionSources={overview.sources}
                 factCandidates={overview.fact_candidates}
-                generationReadiness={
+                productSheetReadiness={
                   step.id === "deterministic-validation"
-                    ? overview.generation_readiness
+                    ? overview.product_sheet_readiness
                     : undefined
                 }
                 productId={overview.product.id}
@@ -620,6 +748,23 @@ function TechnicalAnalysisDashboard({
                     ? onReplaceSources
                     : undefined
                 }
+                action={
+                  step.id === "generation" && canGenerateProductSheet ? (
+                    <Button
+                      className="rounded-full px-5"
+                      disabled={isGeneratingProductSheet}
+                      onClick={onGenerateProductSheet}
+                    >
+                      {isGeneratingProductSheet ? (
+                        <Loader2 className="size-4 animate-spin" />
+                      ) : (
+                        <Sparkles className="size-4" />
+                      )}
+                      Générer la fiche produit
+                    </Button>
+                  ) : undefined
+                }
+                itemRef={step.id === "generation" ? generationStepRef : undefined}
                 step={step}
               />
             ))}
@@ -636,7 +781,7 @@ function TechnicalAnalysisFailedDashboard({ overview }: { overview: ProductOverv
       <ProductStageHero
         badge="Analyse arrêtée"
         title="L’analyse technique a échoué"
-        description="Le workflow s’est arrêté avant de préparer le contexte produit. Consultez les logs backend pour identifier la cause."
+        description="Le workflow s’est arrêté avant de préparer la génération. Consultez les logs backend pour identifier la cause."
       />
 
       <section className="mt-6 grid grid-cols-[1.15fr_0.85fr] gap-6 max-2xl:grid-cols-1">
@@ -653,7 +798,7 @@ function TechnicalReviewDashboard({ overview }: { overview: ProductOverview }) {
       <ProductStageHero
         badge="Contrôle requis"
         title="Corriger les points techniques bloquants"
-        description="Certaines informations détectées demandent une décision humaine avant d’assembler le contexte produit."
+        description="Certaines informations détectées demandent une décision humaine avant la future génération."
       />
 
       <section className="mt-6 grid grid-cols-[1fr] gap-6">
@@ -661,8 +806,8 @@ function TechnicalReviewDashboard({ overview }: { overview: ProductOverview }) {
           productId={overview.product.id}
           reviewCases={overview.review_cases}
         />
-        {overview.generation_readiness ? (
-          <GenerationReadinessSummary generationReadiness={overview.generation_readiness} />
+        {overview.product_sheet_readiness ? (
+          <ProductSheetReadinessSummary productSheetReadiness={overview.product_sheet_readiness} />
         ) : null}
       </section>
     </>
@@ -675,7 +820,7 @@ function CommercialSignalsWaitingDashboard({ overview }: { overview: ProductOver
       <ProductStageHero
         badge="Signaux manquants"
         title="En attente des signaux commerciaux compatibles"
-        description="Les faits techniques sont prêts. Le contexte final attend automatiquement un snapshot ventes et retours correspondant à la famille, la saison et le segment du produit."
+        description="Les faits techniques sont prêts. La future génération attend automatiquement un snapshot ventes et retours correspondant à la famille, la saison et le segment du produit."
       />
 
       <section className="mt-6 grid grid-cols-[1.15fr_0.85fr] gap-6 max-2xl:grid-cols-1">
@@ -699,32 +844,336 @@ function CommercialSignalsWaitingDashboard({ overview }: { overview: ProductOver
   );
 }
 
-function ContextPreparingDashboard({ overview }: { overview: ProductOverview }) {
+function ProductSheetGenerationDashboard({
+  isGenerating,
+  onGenerateProductSheet,
+  overview,
+}: {
+  isGenerating: boolean;
+  onGenerateProductSheet: () => void;
+  overview: ProductOverview;
+}) {
+  const generation = overview.product_sheet_generation ?? null;
+  const isRunning = generation?.status === "EN_COURS" || isGenerating;
+  const sheet = parseProductSheetCandidate(generation?.sheet_json);
+  const reviewReasons = generationReviewReasons(generation);
+
   return (
     <>
       <ProductStageHero
-        badge="Contexte en préparation"
-        title="Assemblage du contexte produit"
-        description="Les faits techniques sont disponibles. Le backend assemble maintenant les données nécessaires à la future génération."
+        badge={
+          generation?.status === "TERMINE"
+            ? "Fiche générée"
+            : generation?.status === "A_VALIDER"
+              ? "À relire"
+              : isRunning
+                ? "Génération en cours"
+                : "Prêt à générer"
+        }
+        title="Génération de la fiche produit"
+        description="Le contexte technique, le style actif et les signaux commerciaux compatibles sont prêts. Lancez la génération quand vous voulez produire le draft."
+        action={
+          !generation || generation.status === "ERREUR" ? (
+            <Button
+              className="h-11 rounded-full border border-white/55 bg-white/12 px-6 py-3 font-semibold !text-white hover:bg-white/18 hover:!text-white"
+              disabled={isGenerating}
+              onClick={onGenerateProductSheet}
+            >
+              {isGenerating ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <Sparkles className="size-4" />
+              )}
+              Générer la fiche produit
+            </Button>
+          ) : null
+        }
       />
 
-      <section className="mt-6">
-        <FactsCard overview={overview} />
+      <section className="mt-6 grid grid-cols-[minmax(0,1.15fr)_minmax(20rem,0.85fr)] gap-6 max-2xl:grid-cols-1">
+        <ProductSheetDraftCard generation={generation} isRunning={isRunning} sheet={sheet} />
+        <Card>
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--color-teak)]">
+            Contexte utilisé
+          </p>
+          <CardTitle className="mt-2 text-xl">Génération contrôlée</CardTitle>
+          <p className="mt-2 text-sm leading-6 text-[var(--color-muted)]">
+            Les signaux commerciaux orientent l’angle. Les dimensions, matières et preuves viennent uniquement des facts validés.
+          </p>
+          <dl className="mt-6 grid gap-3 text-sm">
+            <ProductCriteriaRow label="Facts validés" value={`${overview.facts.length}`} />
+            <ProductCriteriaRow label="Style" value="Pack actif" />
+            <ProductCriteriaRow label="Signaux" value="Snapshot compatible" />
+            <ProductCriteriaRow
+              label="Modèle"
+              value={generation?.llm_model ?? "Vertex AI Gemini"}
+            />
+          </dl>
+          {reviewReasons.length > 0 ? (
+            <div className="mt-5 rounded-2xl bg-[var(--color-gold-soft)]/55 p-4">
+              <p className="text-xs font-bold uppercase tracking-[0.14em] text-[var(--color-teak)]">
+                Raisons de relecture
+              </p>
+              <ul className="mt-2 grid gap-1.5 text-sm leading-6 text-[var(--color-ink)]">
+                {reviewReasons.map((reason) => (
+                  <li key={reason}>• {reason}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {generation ? (
+            <ProductSheetGenerationDebugDisclosure
+              generation={generation}
+              productId={overview.product.id}
+            />
+          ) : null}
+        </Card>
       </section>
     </>
   );
 }
 
-function GenerationReadyDashboard({ overview }: { overview: ProductOverview }) {
+function ProductSheetGenerationDebugDisclosure({
+  generation,
+  productId,
+}: {
+  generation: ProductSheetGeneration | null;
+  productId: string;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const debugQuery = useQuery({
+    queryKey: [
+      "product-sheet-generation-debug",
+      productId,
+      generation?.id,
+      generation?.status,
+      generation?.completed_at,
+      generation?.sheet_json !== null,
+    ],
+    queryFn: () => getProductSheetGenerationDebug(productId),
+    enabled: isOpen && generation !== null,
+    refetchInterval: isOpen && generation?.status === "EN_COURS" ? 3000 : false,
+    staleTime: generation?.status === "EN_COURS" ? 0 : Infinity,
+  });
+
+  if (generation === null) {
+    return null;
+  }
+
   return (
-    <>
-      <ProductStageHero
-        badge="Contexte prêt"
-        title="La fiche est prête pour la génération"
-        description="Le contexte produit est assemblé avec les faits techniques, le guide de style actif et les signaux commerciaux compatibles."
-      />
-      <GenerationCard overview={overview} />
-    </>
+    <details
+      className="mt-5 rounded-2xl border border-[var(--color-border)] bg-white/70 p-4"
+      onToggle={(event) => setIsOpen(event.currentTarget.open)}
+    >
+      <summary className="cursor-pointer text-sm font-semibold text-[var(--color-forest)]">
+        Prompts et réponse JSON
+      </summary>
+      <div className="mt-4 grid gap-4">
+        {debugQuery.isLoading ? (
+          <p className="text-sm text-[var(--color-muted)]">Chargement du détail LLM…</p>
+        ) : debugQuery.error ? (
+          <p className="text-sm text-[var(--color-error)]">
+            Impossible de charger le détail LLM.
+          </p>
+        ) : debugQuery.data ? (
+          <>
+            <ProductGenerationPromptBlock
+              label="System prompt"
+              value={debugQuery.data.system_prompt}
+            />
+            <ProductGenerationPromptBlock
+              label="User prompt"
+              value={debugQuery.data.user_prompt}
+            />
+            {debugQuery.data.llm_response_json === null ? (
+              <ProductGenerationPendingResponseBlock />
+            ) : (
+              <ProductGenerationPromptBlock
+                label="Réponse LLM JSON générée"
+                value={formatDebugJson(debugQuery.data.llm_response_json)}
+              />
+            )}
+          </>
+        ) : (
+          <p className="text-sm text-[var(--color-muted)]">
+            Ouvrez le volet pour charger les prompts rendus et la sortie structurée.
+          </p>
+        )}
+      </div>
+    </details>
+  );
+}
+
+function ProductGenerationPendingResponseBlock() {
+  return (
+    <div className="rounded-2xl bg-[var(--color-ivory)] p-3">
+      <p className="text-xs font-bold uppercase tracking-[0.14em] text-[var(--color-teak)]">
+        Réponse LLM JSON générée
+      </p>
+      <p className="mt-3 flex items-center gap-2 text-xs font-semibold leading-5 text-[var(--color-muted)]">
+        <Loader2 className="size-3.5 animate-spin text-[var(--color-teak)]" />
+        La réponse apparaîtra ici dès que la génération sera terminée.
+      </p>
+    </div>
+  );
+}
+
+function ProductGenerationPromptBlock({ label, value }: { label: string; value: string }) {
+  return (
+    <details className="rounded-2xl bg-[var(--color-ivory)] p-3">
+      <summary className="cursor-pointer text-xs font-bold uppercase tracking-[0.14em] text-[var(--color-teak)]">
+        {label}
+      </summary>
+      <pre className="mt-3 max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-white/80 p-3 text-xs leading-5 text-[var(--color-ink)]">
+        {value || "Non disponible"}
+      </pre>
+    </details>
+  );
+}
+
+function ProductSheetDraftCard({
+  generation,
+  isRunning,
+  sheet,
+}: {
+  generation: ProductSheetGeneration | null;
+  isRunning: boolean;
+  sheet: ProductSheetCandidateView | null;
+}) {
+  if (isRunning) {
+    return (
+      <Card>
+        <div className="flex items-start gap-4">
+          <span className="grid size-11 place-items-center rounded-2xl bg-[var(--color-gold-soft)] text-[var(--color-teak)]">
+            <Loader2 className="size-5 animate-spin" />
+          </span>
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--color-teak)]">
+              Génération en cours
+            </p>
+            <CardTitle className="mt-2 text-2xl">Le draft est en préparation</CardTitle>
+            <p className="mt-2 text-sm leading-6 text-[var(--color-muted)]">
+              LiteLLM appelle Vertex AI avec un output JSON strict. La page se rafraîchit automatiquement.
+            </p>
+          </div>
+        </div>
+      </Card>
+    );
+  }
+
+  if (generation?.status === "ERREUR") {
+    return (
+      <Card className="border border-[var(--color-error-soft)] bg-[var(--color-error-soft)]/35">
+        <p className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--color-error)]">
+          Erreur génération
+        </p>
+        <CardTitle className="mt-2 text-xl">La fiche n’a pas été générée</CardTitle>
+        <p className="mt-2 text-sm leading-6 text-[var(--color-muted)]">
+          {generation.error_message ?? "Consultez les logs backend pour le détail."}
+        </p>
+      </Card>
+    );
+  }
+
+  if (sheet === null) {
+    return (
+      <Card>
+        <p className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--color-teak)]">
+          Draft fiche produit
+        </p>
+        <CardTitle className="mt-2 text-2xl">Aucune fiche générée</CardTitle>
+        <p className="mt-2 text-sm leading-6 text-[var(--color-muted)]">
+          Lancez la génération pour produire une fiche structurée à relire.
+        </p>
+      </Card>
+    );
+  }
+
+  return (
+    <Card className="overflow-hidden p-0">
+      <div className="bg-[linear-gradient(145deg,#fffdf7,#eef2ea)] p-7">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--color-teak)]">
+              Fiche produit générée
+            </p>
+            <h2 className="mt-3 font-serif text-4xl font-semibold tracking-[-0.045em] text-[var(--color-ink)] max-md:text-3xl">
+              {sheet.title}
+            </h2>
+            <p className="mt-2 text-lg font-semibold text-[var(--color-forest)]">
+              {sheet.subtitle}
+            </p>
+          </div>
+          {generation?.status === "A_VALIDER" ? (
+            <Badge tone="warning">À relire</Badge>
+          ) : (
+            <Badge tone="success">Générée</Badge>
+          )}
+        </div>
+        <p className="mt-5 max-w-3xl text-base leading-7 text-[var(--color-muted)]">
+          {sheet.short_description}
+        </p>
+      </div>
+
+      <div className="grid gap-7 p-7">
+        <section>
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--color-teak)]">
+            Description
+          </p>
+          <p className="mt-2 text-sm leading-7 text-[var(--color-ink)]">
+            {sheet.long_description}
+          </p>
+        </section>
+
+        <section>
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--color-teak)]">
+            Bénéfices
+          </p>
+          <ul className="mt-3 grid gap-2">
+            {sheet.benefit_bullets.map((bullet) => (
+              <li
+                key={bullet}
+                className="rounded-2xl bg-[var(--color-sage-soft)]/45 px-4 py-3 text-sm font-semibold leading-6 text-[var(--color-forest)]"
+              >
+                {bullet}
+              </li>
+            ))}
+          </ul>
+        </section>
+
+        <section>
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--color-teak)]">
+            Spécifications techniques
+          </p>
+          <div className="mt-3 overflow-hidden rounded-2xl border border-[var(--color-stone)]">
+            {sheet.technical_specs.map((spec) => (
+              <div
+                key={`${spec.label}-${spec.source_fact_field}`}
+                className="grid grid-cols-[12rem_1fr] gap-4 border-b border-[var(--color-stone)] px-4 py-3 last:border-b-0 max-md:grid-cols-1 max-md:gap-1"
+              >
+                <p className="text-xs font-bold uppercase tracking-[0.12em] text-[var(--color-muted)]">
+                  {spec.label}
+                </p>
+                <p className="text-sm font-semibold text-[var(--color-ink)]">
+                  {spec.value}
+                </p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section>
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--color-teak)]">
+            Usage et entretien
+          </p>
+          <ul className="mt-3 grid gap-2 text-sm leading-6 text-[var(--color-muted)]">
+            {sheet.care_and_use.map((item) => (
+              <li key={item}>• {item}</li>
+            ))}
+          </ul>
+        </section>
+      </div>
+    </Card>
   );
 }
 
@@ -796,7 +1245,7 @@ function SourcesSummaryCard({ overview }: { overview: ProductOverview }) {
                     <span className="block text-[0.68rem] font-bold uppercase tracking-[0.14em]">
                       PDF {index + 1}
                     </span>
-                    <span className="block truncate text-sm font-semibold">
+                    <span className="block break-words text-[0.68rem] font-semibold leading-4">
                       {source.original_file_name}
                     </span>
                   </span>
@@ -807,33 +1256,35 @@ function SourcesSummaryCard({ overview }: { overview: ProductOverview }) {
         </div>
 
         {selectedSource ? (
-          <details className="rounded-2xl bg-[var(--color-ivory)] px-4 py-3 text-xs text-[var(--color-muted)]">
+          <details className="min-w-0 overflow-hidden rounded-2xl bg-[var(--color-ivory)] px-4 py-3 text-xs text-[var(--color-muted)]">
             <summary className="cursor-pointer font-semibold text-[var(--color-forest)]">
               Champs document_source
             </summary>
-            <div className="mt-3 min-h-[24rem]">
+            <div className="mt-3 min-h-[24rem] min-w-0 overflow-hidden">
               <dl className="grid gap-3">
-                <div>
-                  <dt className="truncate font-semibold text-[var(--color-ink)]">
+                <div className="min-w-0">
+                  <dt className="break-words font-semibold text-[var(--color-ink)]">
                     {selectedSource.original_file_name}
                   </dt>
-                  <dd className="mt-1 min-h-5 break-all leading-5">{selectedSource.id}</dd>
+                  <dd className="mt-1 min-h-5 min-w-0 overflow-hidden break-all leading-5">
+                    {selectedSource.id}
+                  </dd>
                 </div>
-                <div>
+                <div className="min-w-0">
                   <dt className="font-semibold text-[var(--color-ink)]">storage_uri</dt>
-                  <dd className="mt-1 min-h-20 break-all leading-5">
+                  <dd className="mt-1 min-h-20 min-w-0 overflow-hidden break-all leading-5 [overflow-wrap:anywhere]">
                     {selectedSource.storage_uri}
                   </dd>
                 </div>
-                <div>
+                <div className="min-w-0">
                   <dt className="font-semibold text-[var(--color-ink)]">storage_generation</dt>
-                  <dd className="mt-1 min-h-5 break-all leading-5">
+                  <dd className="mt-1 min-h-5 min-w-0 overflow-hidden break-all leading-5">
                     {formatNullable(selectedSource.storage_generation)}
                   </dd>
                 </div>
-                <div>
+                <div className="min-w-0">
                   <dt className="font-semibold text-[var(--color-ink)]">storage_metageneration</dt>
-                  <dd className="mt-1 min-h-5 break-all leading-5">
+                  <dd className="mt-1 min-h-5 min-w-0 overflow-hidden break-all leading-5">
                     {formatNullable(selectedSource.storage_metageneration)}
                   </dd>
                 </div>
@@ -871,11 +1322,14 @@ function TechnicalClassificationResultsDisclosure({
   onReplaceSources?: () => void;
   status: ProductAnalysisStepStatus;
 }) {
-  const blockingCount = classifications.filter(
+  const blockingClassifications = classifications.filter(
     (classification) => classification.is_blocking,
-  ).length;
-  const hasOutOfScopeClassification = classifications.some(isOutOfScopeClassification);
-  const hasMixedClassification = classifications.some(isMixedTechnicalDossierClassification);
+  );
+  const blockingCount = blockingClassifications.length;
+  const hasOutOfScopeClassification = blockingClassifications.some(
+    isOutOfScopeClassification,
+  );
+  const blockingMessage = classificationBlockingMessage(blockingClassifications);
   const isClassificationRunning = status === "running";
   const isClassificationCompleted = status === "completed";
   const summaryTone =
@@ -921,11 +1375,7 @@ function TechnicalClassificationResultsDisclosure({
                 )}
               />
               <p className="truncate text-sm font-semibold text-[var(--color-ink)]">
-                {hasOutOfScopeClassification
-                  ? "Lot bloqué par un document hors périmètre"
-                  : hasMixedClassification
-                    ? "Lot bloqué par un dossier technique mélangé"
-                  : "Lot bloqué par une classification faible"}
+                {blockingMessage}
               </p>
             </div>
             {onReplaceSources ? (
@@ -1046,8 +1496,7 @@ type ProductAnalysisStepId =
   | "document-classification"
   | "fact-extraction"
   | "deterministic-validation"
-  | "technical-review"
-  | "context";
+  | "generation";
 
 type ProductAnalysisStep = {
   description: string;
@@ -1060,27 +1509,31 @@ type ProductAnalysisStep = {
 };
 
 function ProductAnalysisStepItem({
+  action,
   classificationResults,
   defaultOpenClassificationResults = false,
   elapsedTime,
   extractionResults,
   extractionSources = [],
   factCandidates = [],
-  generationReadiness,
+  productSheetReadiness,
   hideStepMetadata = false,
+  itemRef,
   onReplaceSources,
   productId,
   step,
   validationReviewCases = [],
 }: {
+  action?: ReactNode;
   classificationResults?: TechnicalClassification[];
   defaultOpenClassificationResults?: boolean;
   elapsedTime: string;
   extractionResults?: TechnicalFactCandidate[];
   extractionSources?: TechnicalSource[];
   factCandidates?: TechnicalFactCandidate[];
-  generationReadiness?: ProductOverview["generation_readiness"];
+  productSheetReadiness?: ProductOverview["product_sheet_readiness"];
   hideStepMetadata?: boolean;
+  itemRef?: Ref<HTMLLIElement>;
   onReplaceSources?: () => void;
   productId: string;
   step: ProductAnalysisStep;
@@ -1090,14 +1543,14 @@ function ProductAnalysisStepItem({
   const hasStepResults =
     classificationResults !== undefined ||
     extractionResults !== undefined ||
-    generationReadiness !== undefined;
+    productSheetReadiness !== undefined;
   const showStepEta =
     step.eta !== undefined &&
     !hasStepResults &&
     (step.status === "running" || step.status === "pending");
 
   return (
-    <li className="grid grid-cols-[42px_1fr] gap-4">
+    <li ref={itemRef} className="grid grid-cols-[42px_1fr] gap-4 outline-none" tabIndex={-1}>
       <span
         className={cn(
           "mt-1 grid size-10 place-items-center rounded-2xl",
@@ -1128,10 +1581,11 @@ function ProductAnalysisStepItem({
           </Badge>
         </div>
         <p className="mt-1 text-sm leading-6 text-[var(--color-muted)]">{step.description}</p>
-        {generationReadiness ? (
+        {action ? <div className="mt-4 flex flex-wrap gap-3">{action}</div> : null}
+        {productSheetReadiness ? (
           <TechnicalValidationResultsDisclosure
             factCandidates={factCandidates}
-            generationReadiness={generationReadiness}
+            productSheetReadiness={productSheetReadiness}
             productId={productId}
             reviewCases={validationReviewCases}
             sources={extractionSources}
@@ -1173,13 +1627,13 @@ function ProductAnalysisStepItem({
 
 function TechnicalValidationResultsDisclosure({
   factCandidates,
-  generationReadiness,
+  productSheetReadiness,
   productId,
   reviewCases,
   sources,
 }: {
   factCandidates: TechnicalFactCandidate[];
-  generationReadiness: NonNullable<ProductOverview["generation_readiness"]>;
+  productSheetReadiness: NonNullable<ProductOverview["product_sheet_readiness"]>;
   productId: string;
   reviewCases: TechnicalReviewCase[];
   sources: TechnicalSource[];
@@ -1187,7 +1641,7 @@ function TechnicalValidationResultsDisclosure({
   const [selectedCase, setSelectedCase] = useState<TechnicalReviewCase | null>(null);
   const sourceById = new Map(sources.map((source) => [source.id, source]));
   const checks = sortValidationChecksBySource(
-    validationFieldChecks(generationReadiness),
+    validationFieldChecks(productSheetReadiness),
     sourceById,
     factCandidates,
   );
@@ -1210,7 +1664,7 @@ function TechnicalValidationResultsDisclosure({
   }, [hasBlocking]);
 
   if (checks.length === 0) {
-    return <GenerationReadinessSummary generationReadiness={generationReadiness} />;
+    return <ProductSheetReadinessSummary productSheetReadiness={productSheetReadiness} />;
   }
 
   return (
@@ -1346,25 +1800,25 @@ function TechnicalValidationResultsDisclosure({
   );
 }
 
-function GenerationReadinessSummary({
-  generationReadiness,
+function ProductSheetReadinessSummary({
+  productSheetReadiness,
 }: {
-  generationReadiness: NonNullable<ProductOverview["generation_readiness"]>;
+  productSheetReadiness: NonNullable<ProductOverview["product_sheet_readiness"]>;
 }) {
-  const requiredMissing = generationReadiness.required_missing ?? [];
-  const lowConfidenceCount = generationReadiness.low_confidence?.length ?? 0;
-  const outOfBoundsCount = generationReadiness.out_of_bounds?.length ?? 0;
-  const contradictionCount = generationReadiness.contradictions?.length ?? 0;
-  const doNotMention = generationReadiness.do_not_mention ?? [];
+  const requiredMissing = productSheetReadiness.required_missing ?? [];
+  const lowConfidenceCount = productSheetReadiness.low_confidence?.length ?? 0;
+  const outOfBoundsCount = productSheetReadiness.out_of_bounds?.length ?? 0;
+  const contradictionCount = productSheetReadiness.contradictions?.length ?? 0;
+  const doNotMention = productSheetReadiness.do_not_mention ?? [];
   const blockingCount =
-    generationReadiness.blocking_count ??
+    productSheetReadiness.blocking_count ??
     requiredMissing.length + lowConfidenceCount + outOfBoundsCount + contradictionCount;
 
   return (
     <div className="mt-3 w-full max-w-3xl rounded-2xl bg-[var(--color-surface-raised)]/55 p-3 shadow-[inset_0_0_0_1px_rgba(23,49,36,0.07)]">
       <div className="flex flex-wrap items-center gap-2">
         <p className="text-xs font-bold uppercase tracking-[0.14em] text-[var(--color-muted)]">
-          Readiness génération
+          Readiness fiche produit
         </p>
         <Badge tone={blockingCount > 0 ? "warning" : "success"}>
           {blockingCount > 0 ? `${blockingCount} blocage${blockingCount > 1 ? "s" : ""}` : "OK"}
@@ -1469,9 +1923,9 @@ function FactsCard({ overview }: { overview: ProductOverview }) {
         </Badge>
       </div>
 
-      {overview.generation_readiness ? (
+      {overview.product_sheet_readiness ? (
         <div className="px-6 pb-6">
-          <GenerationReadinessSummary generationReadiness={overview.generation_readiness} />
+          <ProductSheetReadinessSummary productSheetReadiness={overview.product_sheet_readiness} />
         </div>
       ) : null}
 
@@ -1544,41 +1998,6 @@ function technicalFactCandidateStatusLabel(status: string) {
   return formatCode(status);
 }
 
-function GenerationCard({ overview }: { overview: ProductOverview }) {
-  const isReady = overview.product_context_snapshot !== null;
-
-  return (
-    <section className="mt-6">
-      <Card className="overflow-hidden p-0">
-        <div className="flex flex-wrap items-start justify-between gap-4 p-6">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--color-teak)]">
-              Génération
-            </p>
-            <CardTitle className="mt-2">
-              {isReady ? "Contexte prêt" : "Génération à venir"}
-            </CardTitle>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--color-muted)]">
-              {isReady
-                ? "Le contexte produit est assemblé. La génération de fiche sera branchée à l’étape suivante."
-                : "La fiche sera générable quand le guide, les faits techniques et les signaux commerciaux seront disponibles."}
-            </p>
-          </div>
-          <Badge tone={isReady ? "success" : "neutral"}>
-            {isReady ? "Prêt" : "Verrouillé"}
-          </Badge>
-        </div>
-        <div className="border-t border-[var(--color-stone)] bg-[var(--color-surface-raised)]/45 p-6">
-          <Button disabled>
-            <Sparkles className="size-4" />
-            Générer la fiche produit
-          </Button>
-        </div>
-      </Card>
-    </section>
-  );
-}
-
 function LoadingState({ onBack }: { onBack: () => void }) {
   return (
     <div className="grid min-h-[70vh] place-items-center">
@@ -1641,7 +2060,9 @@ function buildTechnicalAnalysisSteps(overview: ProductOverview): ProductAnalysis
       reviewCase.case_type !== "CLASSIFICATION_UNCERTAIN" &&
       ["A_TRAITER", "DOCUMENT_A_REMPLACER"].includes(reviewCase.status),
   );
-  const contextReady = overview.product_context_snapshot !== null;
+  const factsReadyForGeneration = hasFacts && !hasOpenReviewCases;
+  const hasProductContextSnapshot = overview.product_context_snapshot !== null;
+  const isPreparingGenerationContext = factsReadyForGeneration && !hasProductContextSnapshot;
   const steps = normalizeTechnicalExtractionSteps(overview.run);
   const hasExtractionResults = steps.some((step) => step.step === "extraction");
   const isStoppedAfterExtractionForPoc =
@@ -1649,7 +2070,7 @@ function buildTechnicalAnalysisSteps(overview: ProductOverview): ProductAnalysis
     hasCandidates &&
     !hasFacts &&
     !hasNonClassificationReviewCases &&
-    !overview.generation_readiness;
+    !overview.product_sheet_readiness;
   const classificationDone =
     hasFacts ||
     hasCandidates ||
@@ -1705,7 +2126,7 @@ function buildTechnicalAnalysisSteps(overview: ProductOverview): ProductAnalysis
         : currentStep === "FACT_EXTRACTION"
           ? "running"
           : "pending",
-      eta: "souvent 1 à 3 min",
+      eta: "souvent 30 secondes",
       metadata: metadataFieldsForTechnicalStep("fact-extraction", steps),
     },
     {
@@ -1726,25 +2147,23 @@ function buildTechnicalAnalysisSteps(overview: ProductOverview): ProductAnalysis
       metadata: metadataFieldsForTechnicalStep("deterministic-validation", steps),
     },
     {
-      id: "technical-review",
-      label: "Revue technique",
-      description: hasOpenNonClassificationReviewCases
-        ? "Les points bloquants sont prêts à être résolus."
-        : "Une relecture humaine est demandée seulement si un blocage est détecté.",
-      status: hasOpenNonClassificationReviewCases
-        ? "running"
-        : hasFacts && !hasOpenReviewCases
-          ? "completed"
+      id: "generation",
+      label: "Génération de la fiche",
+      description: hasProductContextSnapshot
+        ? "Le contexte produit est prêt. Vous pouvez générer la fiche produit."
+        : isPreparingGenerationContext
+          ? "Les faits techniques validés sont prêts. Le backend assemble le contexte produit."
+          : "La génération démarre après validation des faits techniques.",
+      status: hasProductContextSnapshot
+        ? "completed"
+        : currentStep === "PROMOTION" || isPreparingGenerationContext
+          ? "running"
           : "pending",
-      metadata: [],
-    },
-    {
-      id: "context",
-      label: "Contexte produit",
-      description: contextReady
-        ? "Le contexte produit est prêt."
-        : "Le contexte sera assemblé après validation des faits et signaux compatibles.",
-      status: contextReady ? "completed" : currentStep === "PROMOTION" ? "running" : "pending",
+      statusLabel: hasProductContextSnapshot
+        ? "Prêt"
+        : isPreparingGenerationContext
+          ? "Préparation"
+          : undefined,
       metadata: [],
     },
   ];
@@ -2037,6 +2456,122 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+type ProductSheetCandidateView = {
+  title: string;
+  subtitle: string;
+  short_description: string;
+  long_description: string;
+  benefit_bullets: string[];
+  technical_specs: Array<{
+    label: string;
+    value: string;
+    source_fact_field: string;
+  }>;
+  care_and_use: string[];
+  proof_ledger: Array<{
+    section: string;
+    source_fact_fields: string[];
+    evidence: string;
+  }>;
+  blocked_claims: string[];
+  requires_human_review: boolean;
+  human_review_reasons: string[];
+};
+
+function parseProductSheetCandidate(value: unknown): ProductSheetCandidateView | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const title = optionalString(value.title);
+  const subtitle = optionalString(value.subtitle);
+  const shortDescription = optionalString(value.short_description);
+  const longDescription = optionalString(value.long_description);
+  if (
+    title === null ||
+    subtitle === null ||
+    shortDescription === null ||
+    longDescription === null
+  ) {
+    return null;
+  }
+
+  return {
+    title,
+    subtitle,
+    short_description: shortDescription,
+    long_description: longDescription,
+    benefit_bullets: stringArrayValue(value.benefit_bullets),
+    technical_specs: recordArrayFromUnknown(value.technical_specs).flatMap(
+      (spec) => {
+        const label = optionalString(spec.label);
+        const specValue = optionalString(spec.value);
+        const sourceFactField = optionalString(spec.source_fact_field);
+        if (label === null || specValue === null || sourceFactField === null) {
+          return [];
+        }
+        return [{ label, value: specValue, source_fact_field: sourceFactField }];
+      },
+    ),
+    care_and_use: stringArrayValue(value.care_and_use),
+    proof_ledger: recordArrayFromUnknown(value.proof_ledger).flatMap(
+      (proof) => {
+        const section = optionalString(proof.section);
+        const evidence = optionalString(proof.evidence);
+        if (section === null || evidence === null) {
+          return [];
+        }
+        return [
+          {
+            section,
+            evidence,
+            source_fact_fields: stringArrayValue(proof.source_fact_fields),
+          },
+        ];
+      },
+    ),
+    blocked_claims: stringArrayValue(value.blocked_claims),
+    requires_human_review: value.requires_human_review === true,
+    human_review_reasons: stringArrayValue(value.human_review_reasons),
+  };
+}
+
+function generationReviewReasons(generation: ProductSheetGeneration | null) {
+  const selfCheck = generation?.self_check_json;
+  if (!isRecord(selfCheck)) {
+    return [];
+  }
+
+  return stringArrayValue(selfCheck.human_review_reasons);
+}
+
+function formatDebugJson(value: unknown) {
+  if (value === null || value === undefined) {
+    return "null";
+  }
+
+  return JSON.stringify(value, null, 2);
+}
+
+function stringArrayValue(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.flatMap((item) => {
+    const normalized = optionalString(item);
+    return normalized === null ? [] : [normalized];
+  });
+}
+
+function recordArrayFromUnknown(value: unknown): Array<Record<string, unknown>> {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.filter(isRecord);
+}
+
 type ValidationFieldCheck = {
   fieldName: string;
   cardinality: string;
@@ -2058,9 +2593,9 @@ type RejectedValidationCandidate = {
 };
 
 function validationFieldChecks(
-  generationReadiness: NonNullable<ProductOverview["generation_readiness"]>,
+  productSheetReadiness: NonNullable<ProductOverview["product_sheet_readiness"]>,
 ): ValidationFieldCheck[] {
-  const rawChecks = generationReadiness.field_checks;
+  const rawChecks = productSheetReadiness.field_checks;
   if (!Array.isArray(rawChecks)) {
     return [];
   }
@@ -2794,6 +3329,54 @@ function technicalClassificationStatus(classification: TechnicalClassification):
     label: "À vérifier",
     tone: "warning",
   };
+}
+
+function classificationBlockingMessage(classifications: TechnicalClassification[]) {
+  const outOfScopeCount = classifications.filter(isOutOfScopeClassification).length;
+  const mixedCount = classifications.filter(isMixedTechnicalDossierClassification).length;
+  const lowConfidenceCount = classifications.length - outOfScopeCount - mixedCount;
+
+  if (outOfScopeCount > 0 && mixedCount === 0 && lowConfidenceCount === 0) {
+    return `Lot bloqué par ${formatFrenchCount(outOfScopeCount)} ${pluralize(
+      outOfScopeCount,
+      "document hors périmètre",
+      "documents hors périmètre",
+    )}`;
+  }
+
+  if (mixedCount > 0 && outOfScopeCount === 0 && lowConfidenceCount === 0) {
+    return `Lot bloqué par ${formatFrenchCount(mixedCount)} ${pluralize(
+      mixedCount,
+      "dossier technique mélangé",
+      "dossiers techniques mélangés",
+    )}`;
+  }
+
+  if (lowConfidenceCount > 0 && outOfScopeCount === 0 && mixedCount === 0) {
+    return `Lot bloqué par ${formatFrenchCount(lowConfidenceCount)} ${pluralize(
+      lowConfidenceCount,
+      "classification faible",
+      "classifications faibles",
+    )}`;
+  }
+
+  return `Lot bloqué par ${formatFrenchCount(classifications.length)} documents à remplacer ou vérifier`;
+}
+
+function formatFrenchCount(count: number) {
+  if (count === 1) {
+    return "un";
+  }
+
+  if (count === 2) {
+    return "deux";
+  }
+
+  return String(count);
+}
+
+function pluralize(count: number, singular: string, plural: string) {
+  return count > 1 ? plural : singular;
 }
 
 function isOutOfScopeClassification(classification: TechnicalClassification) {

@@ -191,7 +191,7 @@ export function ProductSheetsHomePage({
                   <CardTitle className="mt-2">Fiches à préparer</CardTitle>
                   <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--color-muted)]">
                     Chaque ligne ouvre le parcours complet de la fiche : dossiers techniques,
-                    analyse, contexte, puis génération.
+                    analyse, contrôle, puis génération.
                   </p>
                 </div>
               </div>

@@ -1,9 +1,13 @@
 import type { ProductOverview, ProductSheet, TechnicalRun } from "@/features/product-sheets/schema";
 
-export type ProductFlowStep = "product" | "sources" | "analysis" | "context" | "generation";
+export type ProductFlowStep = "product" | "sources" | "analysis" | "generation";
 
 function productReadinessLabel(status: ProductSheet["readinessStatus"]) {
   switch (status) {
+    case "PRODUCT_SHEET_READY":
+      return "Fiche générée";
+    case "GENERATION_RUNNING":
+      return "Génération en cours";
     case "CONTEXT_READY":
       return "Prêt pour génération";
     case "INGESTION_RUNNING":
@@ -49,8 +53,11 @@ export function productListActionLabel(product: ProductSheet) {
       return "Voir la fiche";
     case "PENDING_TECH_REVIEW":
       return "Corriger la fiche";
+    case "GENERATION_RUNNING":
+    case "PRODUCT_SHEET_READY":
+      return "Voir la fiche";
     case "CONTEXT_READY":
-      return "Générer bientôt";
+      return "Générer la fiche";
     case "FAILED":
       return "Voir la fiche";
   }
@@ -70,8 +77,12 @@ export function productListActionHint(product: ProductSheet) {
       return "Suivre l’analyse technique";
     case "PENDING_TECH_REVIEW":
       return "Résoudre les points bloquants";
+    case "GENERATION_RUNNING":
+      return "Génération de la fiche";
+    case "PRODUCT_SHEET_READY":
+      return "Fiche prête à relire";
     case "CONTEXT_READY":
-      return "Contexte prêt";
+      return "Prêt pour génération";
     case "FAILED":
       return "Contrôler le problème";
   }
@@ -79,8 +90,11 @@ export function productListActionHint(product: ProductSheet) {
 
 function productStatusTone(status: ProductSheet["readinessStatus"]) {
   switch (status) {
+    case "PRODUCT_SHEET_READY":
     case "CONTEXT_READY":
       return "success";
+    case "GENERATION_RUNNING":
+      return "warning";
     case "PENDING_TECH_REVIEW":
     case "FAILED":
       return "danger";
@@ -92,12 +106,16 @@ function productStatusTone(status: ProductSheet["readinessStatus"]) {
 }
 
 export function resolveProductFlowStep(overview: ProductOverview): ProductFlowStep {
+  if (overview.product_sheet_generation?.status === "TERMINE" || overview.product_sheet_generation?.status === "A_VALIDER") {
+    return "generation";
+  }
+
   if (overview.product_context_snapshot !== null) {
     return "generation";
   }
 
   if (overview.run?.statut === "TERMINE" && overview.review_cases.length === 0) {
-    return "context";
+    return "generation";
   }
 
   if (overview.run !== null) {

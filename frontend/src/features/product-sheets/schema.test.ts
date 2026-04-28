@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  generateProductSheetResponseSchema,
   productOverviewSchema,
   productTaxonomiesResponseSchema,
   productsListResponseSchema,
@@ -148,7 +149,7 @@ describe("productsListResponseSchema", () => {
         },
       ],
       commercial_signal_snapshot: null,
-      generation_readiness: {
+      product_sheet_readiness: {
         profile_id: "00000000-0000-0000-0000-000000000201",
         ready: false,
         blocking_count: 1,
@@ -160,6 +161,7 @@ describe("productsListResponseSchema", () => {
         do_not_mention: ["eco_certifications"],
       },
       product_context_snapshot: null,
+      product_sheet_generation: null,
     });
 
     expect(payload.sources).toHaveLength(1);
@@ -167,8 +169,8 @@ describe("productsListResponseSchema", () => {
     expect(payload.technical_classifications[1]?.blocking_reason).toBe("OUT_OF_SCOPE");
     expect(payload.review_cases[0]?.status).toBe("A_TRAITER");
     expect(payload.review_cases[0]?.metadata_json).toMatchObject({ threshold: 0.9 });
-    expect(payload.generation_readiness?.required_missing).toEqual(["dimension_width"]);
-    expect(payload.generation_readiness?.do_not_mention).toEqual(["eco_certifications"]);
+    expect(payload.product_sheet_readiness?.required_missing).toEqual(["dimension_width"]);
+    expect(payload.product_sheet_readiness?.do_not_mention).toEqual(["eco_certifications"]);
   });
 
   it("parses technical source upload, ingestion start and review resolution payloads", () => {
@@ -223,5 +225,36 @@ describe("productsListResponseSchema", () => {
     expect(start.run.current_step).toBe("DOCUMENT_CLASSIFICATION");
     expect(resolution.status).toBe("APPROUVE");
     expect(resolution.review_complete).toBe(true);
+  });
+
+  it("parses the product sheet generation payload", () => {
+    const payload = generateProductSheetResponseSchema.parse({
+      generation: {
+        id: "generation-1",
+        product_id: "product-1",
+        product_context_snapshot_id: "context-1",
+        status: "TERMINE",
+        workflow_id: "product-sheet-generation-generation-1",
+        prompt_registry_provider: "local",
+        prompt_name: "product_sheet_generate",
+        prompt_version: "v1",
+        llm_model: "vertex_ai/gemini-3-flash-preview",
+        llm_temperature: 0.2,
+        llm_max_tokens: 6144,
+        llm_response_format_name: "product_sheet_candidate_v1",
+        rendered_system_prompt_hash: "sha256:abc",
+        rendered_user_prompt_hash: "sha256:def",
+        sheet_json: { title: "Table Rivage 220" },
+        self_check_json: { requires_human_review: false },
+        error_message: null,
+        started_at: "2026-04-27T10:00:00.000Z",
+        completed_at: "2026-04-27T10:00:30.000Z",
+        created_at: "2026-04-27T10:00:00.000Z",
+        updated_at: "2026-04-27T10:00:30.000Z",
+      },
+    });
+
+    expect(payload.generation.status).toBe("TERMINE");
+    expect(payload.generation.sheet_json).toEqual({ title: "Table Rivage 220" });
   });
 });

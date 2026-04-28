@@ -6,6 +6,8 @@ const productReadinessStatusSchema = z.enum([
   "INGESTION_RUNNING",
   "PENDING_TECH_REVIEW",
   "CONTEXT_READY",
+  "GENERATION_RUNNING",
+  "PRODUCT_SHEET_READY",
   "FAILED",
 ]);
 
@@ -144,7 +146,7 @@ const technicalReviewCaseSchema = z.object({
   metadata_json: z.unknown().nullable().optional(),
 });
 
-const generationReadinessSchema = z
+const productSheetReadinessSchema = z
   .object({
     profile_id: z.string().nullable().optional(),
     famille_code: z.string().nullable().optional(),
@@ -161,6 +163,30 @@ const generationReadinessSchema = z
   })
   .passthrough();
 
+const productSheetGenerationSchema = z.object({
+  id: z.string(),
+  product_id: z.string(),
+  product_context_snapshot_id: z.string(),
+  status: z.enum(["EN_COURS", "TERMINE", "A_VALIDER", "ERREUR"]),
+  workflow_id: z.string().nullable(),
+  prompt_registry_provider: z.string().nullable(),
+  prompt_name: z.string().nullable(),
+  prompt_version: z.string().nullable(),
+  llm_model: z.string().nullable(),
+  llm_temperature: z.number().nullable(),
+  llm_max_tokens: z.number().nullable(),
+  llm_response_format_name: z.string().nullable(),
+  rendered_system_prompt_hash: z.string().nullable(),
+  rendered_user_prompt_hash: z.string().nullable(),
+  sheet_json: z.unknown().nullable(),
+  self_check_json: z.unknown().nullable(),
+  error_message: z.string().nullable(),
+  started_at: z.string().nullable(),
+  completed_at: z.string().nullable(),
+  created_at: z.string().nullable(),
+  updated_at: z.string().nullable(),
+});
+
 export const productOverviewSchema = z.object({
   product: productOverviewProductSchema,
   technical_collection: technicalCollectionSchema.nullable(),
@@ -171,8 +197,9 @@ export const productOverviewSchema = z.object({
   fact_candidates: z.array(technicalFactCandidateSchema),
   review_cases: z.array(technicalReviewCaseSchema),
   commercial_signal_snapshot: z.unknown().nullable(),
-  generation_readiness: generationReadinessSchema.nullable().optional(),
+  product_sheet_readiness: productSheetReadinessSchema.nullable().optional(),
   product_context_snapshot: z.unknown().nullable(),
+  product_sheet_generation: productSheetGenerationSchema.nullable().optional(),
 });
 
 export const uploadTechnicalSourcesResponseSchema = z.object({
@@ -185,6 +212,21 @@ export const startTechnicalIngestionResponseSchema = z.object({
   run: technicalRunSchema,
   sources: z.array(technicalSourceSchema),
   reused_existing_run: z.boolean(),
+});
+
+export const generateProductSheetResponseSchema = z.object({
+  generation: productSheetGenerationSchema,
+});
+
+export const productSheetGenerationDebugSchema = z.object({
+  generation_id: z.string(),
+  prompt_registry_provider: z.string(),
+  prompt_name: z.string(),
+  prompt_version: z.string(),
+  system_prompt: z.string(),
+  user_prompt: z.string(),
+  llm_response_json: z.unknown().nullable(),
+  self_check_json: z.unknown().nullable(),
 });
 
 const resolveTechnicalReviewCaseRequestSchema = z.object({
@@ -233,6 +275,7 @@ export type ProductsListResponse = z.infer<typeof productsListResponseSchema>;
 export type ProductTaxonomy = z.infer<typeof productTaxonomySchema>;
 export type ProductTaxonomiesResponse = z.infer<typeof productTaxonomiesResponseSchema>;
 export type ProductOverview = z.infer<typeof productOverviewSchema>;
+export type ProductSheetGeneration = z.infer<typeof productSheetGenerationSchema>;
 export type TechnicalSource = z.infer<typeof technicalSourceSchema>;
 export type TechnicalClassification = z.infer<typeof technicalClassificationSchema>;
 export type TechnicalFactCandidate = z.infer<typeof technicalFactCandidateSchema>;
@@ -246,6 +289,12 @@ export type UploadTechnicalSourcesResponse = z.infer<
 >;
 export type StartTechnicalIngestionResponse = z.infer<
   typeof startTechnicalIngestionResponseSchema
+>;
+export type GenerateProductSheetResponse = z.infer<
+  typeof generateProductSheetResponseSchema
+>;
+export type ProductSheetGenerationDebug = z.infer<
+  typeof productSheetGenerationDebugSchema
 >;
 export type ReplaceTechnicalSourcesLotResponse = StartTechnicalIngestionResponse;
 export type ResolveTechnicalReviewCaseRequest = z.infer<

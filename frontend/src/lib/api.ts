@@ -1,5 +1,7 @@
 import {
   createProductResponseSchema,
+  generateProductSheetResponseSchema,
+  productSheetGenerationDebugSchema,
   productOverviewSchema,
   productTaxonomiesResponseSchema,
   productsListResponseSchema,
@@ -8,6 +10,8 @@ import {
   uploadTechnicalSourcesResponseSchema,
   type CreateProductRequest,
   type CreateProductResponse,
+  type GenerateProductSheetResponse,
+  type ProductSheetGenerationDebug,
   type ProductOverview,
   type ProductTaxonomiesResponse,
   type ProductsListResponse,
@@ -91,6 +95,20 @@ export async function getProductOverview(productId: string): Promise<ProductOver
   return productOverviewSchema.parse(await response.json());
 }
 
+export async function getProductSheetGenerationDebug(
+  productId: string,
+): Promise<ProductSheetGenerationDebug> {
+  const response = await _fetchProductApi(
+    `${apiBaseUrl}/api/products/${productId}/product-sheet/generation-debug`,
+  );
+
+  if (!response.ok) {
+    throw new Error(`Impossible de charger le détail de génération (${response.status})`);
+  }
+
+  return productSheetGenerationDebugSchema.parse(await response.json());
+}
+
 export async function uploadTechnicalSources(
   productId: string,
   files: File[],
@@ -168,6 +186,26 @@ export async function startTechnicalIngestion(
   }
 
   return startTechnicalIngestionResponseSchema.parse(await response.json());
+}
+
+export async function generateProductSheet(
+  productId: string,
+): Promise<GenerateProductSheetResponse> {
+  const response = await _fetchProductApi(
+    `${apiBaseUrl}/api/products/${productId}/product-sheet/generate`,
+    {
+      method: "POST",
+    },
+  );
+
+  if (!response.ok) {
+    const detail = await _extractErrorDetail(response);
+    throw new Error(
+      detail ?? `Impossible de lancer la génération (${response.status})`,
+    );
+  }
+
+  return generateProductSheetResponseSchema.parse(await response.json());
 }
 
 export async function resolveTechnicalReviewCase(

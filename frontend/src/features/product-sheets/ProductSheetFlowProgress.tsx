@@ -12,7 +12,6 @@ const steps: Array<{ id: ProductFlowStep; label: string }> = [
   { id: "product", label: "Produit" },
   { id: "sources", label: "Dossiers" },
   { id: "analysis", label: "Analyse" },
-  { id: "context", label: "Contexte" },
   { id: "generation", label: "Génération" },
 ];
 
@@ -45,7 +44,7 @@ export function ProductSheetFlowProgress({
         {current.label}
       </p>
 
-      <div className="mt-1.5 grid grid-cols-5 gap-1" aria-hidden="true">
+      <div className="mt-1.5 grid grid-cols-4 gap-1" aria-hidden="true">
         {steps.map((step, index) => (
           <div
             key={step.id}
