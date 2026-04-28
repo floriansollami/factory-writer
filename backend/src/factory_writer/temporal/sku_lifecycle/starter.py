@@ -10,11 +10,18 @@ from factory_writer.application.ports.product_technical_ingestion import (
     TechnicalSourcesUploaded,
 )
 from factory_writer.temporal.common.config import TaskQueue
+from factory_writer.temporal.product_sheet_generation.contracts import (
+    ProductSheetGenerationInput,
+)
+from factory_writer.temporal.product_sheet_generation.workflow import (
+    ProductSheetGenerationWorkflow,
+)
 from factory_writer.temporal.sku_lifecycle.contracts import (
     CommercialSnapshotAvailableSignal,
     ProductLifecycleInput,
     ReviewCaseResolvedSignal,
     StylePackActivatedSignal,
+    TechnicalFactsReadySignal,
 )
 from factory_writer.temporal.sku_lifecycle.contracts import (
     ProductContextRef as TemporalProductContextRef,
@@ -130,6 +137,39 @@ class TemporalProductLifecycleWorkflowStarter:
                 f"Impossible de démarrer le workflow Temporal Technical Dossier: {str(exc)}"
             ) from exc
 
+    async def start_product_sheet_generation(
+        self,
+        *,
+        product_id: str,
+        generation_id: str,
+    ) -> str:
+        workflow_id = _product_sheet_generation_workflow_id(generation_id)
+        try:
+            logger.info(
+                "Product sheet | Temporal | démarrage workflow",
+                product_id=product_id,
+                generation_id=generation_id,
+                workflow_id=workflow_id,
+                task_queue=TaskQueue.PRODUCT_LIFECYCLE.value,
+            )
+            await self._client.start_workflow(
+                ProductSheetGenerationWorkflow.run,
+                ProductSheetGenerationInput(
+                    product_id=product_id,
+                    generation_id=generation_id,
+                ),
+                id=workflow_id,
+                task_queue=TaskQueue.PRODUCT_LIFECYCLE.value,
+                id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
+                static_summary="Factory Writer product sheet generation",
+                static_details=f"Product sheet generation for product {product_id}",
+            )
+            return workflow_id
+        except Exception as exc:
+            raise RuntimeError(
+                f"Impossible de démarrer le workflow Temporal Product Sheet: {str(exc)}"
+            ) from exc
+
     async def signal_technical_sources_uploaded(
         self,
         sku: str,
@@ -166,6 +206,49 @@ class TemporalProductLifecycleWorkflowStarter:
             )
             raise RuntimeError(
                 f"Impossible d'envoyer le signal au workflow produit: {str(exc)}"
+            ) from exc
+
+    async def signal_technical_facts_ready(
+        self,
+        *,
+        sku: str,
+        ingestion_run_id: str,
+        promoted_fact_count: int,
+    ) -> None:
+        workflow_id = _product_workflow_id(sku)
+        try:
+            logger.info(
+                "Product lifecycle | Temporal | signal facts techniques prêts",
+                sku=sku,
+                workflow_id=workflow_id,
+                ingestion_run_id=ingestion_run_id,
+                promoted_fact_count=promoted_fact_count,
+            )
+            handle = self._client.get_workflow_handle(workflow_id)
+            await handle.signal(
+                ProductLifecycleWorkflow.technical_facts_ready,
+                TechnicalFactsReadySignal(
+                    ingestion_run_id=ingestion_run_id,
+                    promoted_fact_count=promoted_fact_count,
+                ),
+            )
+            logger.info(
+                "Product lifecycle | Temporal | signal facts techniques prêts envoyé",
+                sku=sku,
+                workflow_id=workflow_id,
+                ingestion_run_id=ingestion_run_id,
+                promoted_fact_count=promoted_fact_count,
+            )
+        except Exception as exc:
+            logger.exception(
+                "Product lifecycle | Temporal | échec signal facts techniques prêts",
+                sku=sku,
+                workflow_id=workflow_id,
+                ingestion_run_id=ingestion_run_id,
+                promoted_fact_count=promoted_fact_count,
+            )
+            raise RuntimeError(
+                f"Impossible d'envoyer le signal facts techniques au workflow produit: {str(exc)}"
             ) from exc
 
     async def signal_technical_review_case_resolved(
@@ -255,6 +338,10 @@ def _product_workflow_id(sku: str) -> str:
 
 def _technical_dossier_workflow_id(ingestion_run_id: str) -> str:
     return f"technical-dossier-{ingestion_run_id}"
+
+
+def _product_sheet_generation_workflow_id(generation_id: str) -> str:
+    return f"product-sheet-generation-{generation_id}"
 
 
 def _to_temporal_product_ref(product: ProductContextReference) -> TemporalProductContextRef:

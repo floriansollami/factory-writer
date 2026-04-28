@@ -38,7 +38,7 @@ _CandidateRef = tuple[int, TechnicalFactCandidateInput]
 class _ValidationResult:
     review_cases: list[TechnicalReviewCaseInput]
     promoted_facts: list[PromotedTechnicalFactInput]
-    generation_readiness: dict[str, Any]
+    product_sheet_readiness: dict[str, Any]
 
 
 def _validate_technical_candidates(

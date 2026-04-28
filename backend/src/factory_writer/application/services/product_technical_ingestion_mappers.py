@@ -223,6 +223,14 @@ def _product_readiness_status_from_overview(overview: dict[str, Any]) -> str:
     run = overview.get("run")
     sources = overview.get("sources") or []
     review_cases = overview.get("review_cases") or []
+    product_sheet_generation = overview.get("product_sheet_generation")
+
+    if isinstance(product_sheet_generation, dict):
+        generation_status = product_sheet_generation.get("status")
+        if generation_status == "EN_COURS":
+            return "GENERATION_RUNNING"
+        if generation_status in {"TERMINE", "A_VALIDER"}:
+            return "PRODUCT_SHEET_READY"
 
     if overview.get("product_context_snapshot") is not None:
         return "CONTEXT_READY"

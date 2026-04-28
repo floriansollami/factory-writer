@@ -13,6 +13,7 @@ from factory_writer.infrastructure.database.repositories.product_repository impo
 )
 from factory_writer.infrastructure.database.session import get_session_factory
 from factory_writer.infrastructure.gcp.storage_client import StorageClient
+from factory_writer.infrastructure.prompts.local_prompt_registry import LocalPromptRegistry
 from factory_writer.temporal.client import get_temporal_client
 from factory_writer.temporal.sku_lifecycle.starter import TemporalProductLifecycleWorkflowStarter
 
@@ -24,6 +25,7 @@ async def get_product_read_service(
     return ProductTechnicalIngestionService(
         settings=settings,
         repository=ProductRepository(session_factory),
+        prompt_registry=LocalPromptRegistry(),
     )
 
 

@@ -17,6 +17,8 @@ from factory_writer.temporal.technical_dossier_ingestion.contracts import (
     FinalizeTechnicalReviewInput,
     FinalizeTechnicalReviewResult,
     MarkTechnicalIngestionFailedInput,
+    NotifyTechnicalFactsReadyInput,
+    NotifyTechnicalFactsReadyResult,
     PersistClassificationInput,
     PersistClassificationResult,
     PersistTechnicalFactCandidatesInput,
@@ -249,7 +251,7 @@ class TechnicalDossierActivities:
             promoted_facts=tuple(
                 _to_temporal_promoted_fact(promoted_fact) for promoted_fact in result.promoted_facts
             ),
-            generation_readiness=result.generation_readiness,
+            product_sheet_readiness=result.product_sheet_readiness,
         )
 
     @activity.defn
@@ -272,7 +274,7 @@ class TechnicalDossierActivities:
                 _to_app_promoted_fact(promoted_fact) for promoted_fact in payload.promoted_facts
             ),
             extraction_steps_json=payload.extraction_steps_json,
-            generation_readiness=payload.generation_readiness,
+            product_sheet_readiness=payload.product_sheet_readiness,
         )
         logger.info(
             "Technical dossier | fact promotion completed",
@@ -306,6 +308,32 @@ class TechnicalDossierActivities:
             promoted_fact_count=result.promoted_fact_count,
         )
         return FinalizeTechnicalReviewResult(promoted_fact_count=result.promoted_fact_count)
+
+    @activity.defn
+    async def notify_technical_facts_ready(
+        self,
+        payload: NotifyTechnicalFactsReadyInput,
+    ) -> NotifyTechnicalFactsReadyResult:
+        logger.info(
+            "Technical dossier | notifying technical facts ready",
+            product_id=payload.product.product_id,
+            sku=payload.product.sku,
+            ingestion_run_id=payload.ingestion_run_id,
+            promoted_fact_count=payload.promoted_fact_count,
+        )
+        await self._service.notify_technical_facts_ready(
+            product=_to_app_product_ref(payload.product),
+            technical_ingestion_run_id=payload.ingestion_run_id,
+            promoted_fact_count=payload.promoted_fact_count,
+        )
+        logger.info(
+            "Technical dossier | technical facts ready notified",
+            product_id=payload.product.product_id,
+            sku=payload.product.sku,
+            ingestion_run_id=payload.ingestion_run_id,
+            promoted_fact_count=payload.promoted_fact_count,
+        )
+        return NotifyTechnicalFactsReadyResult(notified=True)
 
     @activity.defn
     async def mark_technical_ingestion_failed(

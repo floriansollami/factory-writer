@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import uuid
 from dataclasses import asdict
 from time import perf_counter
@@ -7,6 +8,7 @@ from typing import Any
 
 import structlog
 
+from factory_writer.application.ports.product_sheet_generation import ProductSheetGeneratorPort
 from factory_writer.application.ports.product_technical_ingestion import (
     STATUS_PENDING_TECH_REVIEW,
     STATUS_TECHNICAL_FACTS_READY,
@@ -21,6 +23,8 @@ from factory_writer.application.ports.product_technical_ingestion import (
     ProductContextReadiness,
     ProductContextReference,
     ProductLifecycleWorkflowPort,
+    ProductSheetGenerationContext,
+    ProductSheetGenerationSnapshot,
     ProductSnapshot,
     ProductTechnicalRepositoryPort,
     PromotedTechnicalFactPayload,
@@ -36,6 +40,10 @@ from factory_writer.application.ports.product_technical_ingestion import (
     TechnicalSourcesUploaded,
     UploadedTechnicalSourceData,
     ValidateTechnicalFactsResult,
+)
+from factory_writer.application.ports.style_guide_ingestion import (
+    PromptRegistryPort,
+    PromptSelector,
 )
 from factory_writer.application.services.document_storage_paths import (
     build_technical_dossier_pdf_object_name,
@@ -82,6 +90,7 @@ from factory_writer.application.services.technical_fact_validation import (
 from factory_writer.core.config import Settings
 from factory_writer.domain.document_ingestion_types import (
     CurrentStep,
+    ProductSheetGenerationStatus,
     StatutDocumentIngestionRun,
     TechnicalReviewResolutionAction,
 )
@@ -99,6 +108,8 @@ class ProductTechnicalIngestionService:
         workflow_starter: ProductLifecycleWorkflowPort | None = None,
         document_processor: TechnicalDocumentProcessorPort | None = None,
         extractor_router: TechnicalExtractorRouterPort | None = None,
+        prompt_registry: PromptRegistryPort | None = None,
+        product_sheet_generator: ProductSheetGeneratorPort | None = None,
     ) -> None:
         self._settings = settings
         self._repository = repository
@@ -106,6 +117,8 @@ class ProductTechnicalIngestionService:
         self._workflow_starter = workflow_starter
         self._document_processor = document_processor
         self._extractor_router = extractor_router or ConfiguredTechnicalExtractorRouter(settings)
+        self._prompt_registry = prompt_registry
+        self._product_sheet_generator = product_sheet_generator
 
     async def create_product(
         self,
@@ -259,13 +272,21 @@ class ProductTechnicalIngestionService:
         preparation = await self._repository.prepare_technical_ingestion_start(
             product_id=product_id
         )
+        product_ref = _product_to_context_reference(preparation.product)
+        sources_signal = TechnicalSourcesUploaded(
+            document_source_ids=tuple(str(source.id) for source in preparation.sources),
+            ingestion_run_id=str(preparation.run.id),
+            source_event_id=str(preparation.run.id),
+        )
+
+        await self._workflow_starter.start_product_lifecycle(product_ref)
+        await self._workflow_starter.signal_technical_sources_uploaded(
+            preparation.product.sku,
+            sources_signal,
+        )
         workflow_id = await self._workflow_starter.start_technical_dossier_ingestion(
-            _product_to_context_reference(preparation.product),
-            TechnicalSourcesUploaded(
-                document_source_ids=tuple(str(source.id) for source in preparation.sources),
-                ingestion_run_id=str(preparation.run.id),
-                source_event_id=str(preparation.run.id),
-            ),
+            product_ref,
+            sources_signal,
         )
 
         logger.info(
@@ -346,14 +367,30 @@ class ProductTechnicalIngestionService:
         preparation = await self._repository.prepare_technical_ingestion_start(
             product_id=product_id
         )
+        product_ref = _product_to_context_reference(preparation.product)
+        sources_signal = TechnicalSourcesUploaded(
+            document_source_ids=tuple(str(source.id) for source in preparation.sources),
+            ingestion_run_id=str(preparation.run.id),
+            source_event_id=str(preparation.run.id),
+        )
 
+        await self._workflow_starter.start_product_lifecycle(product_ref)
         await self._workflow_starter.signal_technical_sources_uploaded(
             preparation.product.sku,
-            TechnicalSourcesUploaded(
-                document_source_ids=tuple(str(source.id) for source in preparation.sources),
-                ingestion_run_id=str(preparation.run.id),
-                source_event_id=str(preparation.run.id),
-            ),
+            sources_signal,
+        )
+        workflow_id = await self._workflow_starter.start_technical_dossier_ingestion(
+            product_ref,
+            sources_signal,
+        )
+
+        logger.info(
+            "Technical dossier | Analyse lancée",
+            product_id=str(product_id),
+            collection_id=str(preparation.collection_id),
+            ingestion_run_id=str(preparation.run.id),
+            workflow_id=workflow_id,
+            source_count=len(preparation.sources),
         )
 
         return {
@@ -366,6 +403,163 @@ class ProductTechnicalIngestionService:
 
     async def get_product_overview(self, *, product_id: uuid.UUID) -> dict[str, Any]:
         return await self._repository.get_product_overview(product_id)
+
+    async def get_product_sheet_generation_debug(self, *, product_id: uuid.UUID) -> dict[str, Any]:
+        if self._prompt_registry is None:
+            raise RuntimeError("Prompt registry fiche produit non configuré.")
+
+        overview = await self._repository.get_product_overview(product_id)
+        generation_payload = overview.get("product_sheet_generation")
+        if not isinstance(generation_payload, dict):
+            raise RuntimeError("Aucune génération de fiche produit disponible.")
+
+        generation_id_raw = generation_payload.get("id")
+        if not isinstance(generation_id_raw, str):
+            raise RuntimeError("Génération de fiche produit invalide.")
+
+        generation_context = await self._repository.load_product_sheet_generation_context(
+            generation_id=uuid.UUID(generation_id_raw),
+        )
+        generation = generation_context.generation
+        prompt_definition = await self._prompt_registry.get_prompt(
+            PromptSelector(
+                name=generation.prompt_name or self._settings.llm.product_sheet_prompt_name,
+                version=generation.prompt_version
+                or self._settings.llm.product_sheet_prompt_version,
+            )
+        )
+        prompt = prompt_definition.compile(
+            {
+                "context_json": json.dumps(
+                    _product_sheet_generation_context_to_prompt_payload(generation_context),
+                    ensure_ascii=False,
+                    indent=2,
+                    sort_keys=True,
+                )
+            }
+        )
+
+        return {
+            "generation_id": str(generation.id),
+            "prompt_registry_provider": prompt.registry_provider,
+            "prompt_name": prompt.name,
+            "prompt_version": prompt.version,
+            "system_prompt": _first_prompt_message(prompt.messages, "system"),
+            "user_prompt": _first_prompt_message(prompt.messages, "user"),
+            "llm_response_json": generation.sheet_json,
+            "self_check_json": generation.self_check_json,
+        }
+
+    async def start_product_sheet_generation(self, *, product_id: uuid.UUID) -> dict[str, Any]:
+        if self._workflow_starter is None:
+            raise RuntimeError("Workflow starter non configuré pour la génération produit.")
+
+        generation = await self._repository.prepare_product_sheet_generation(
+            product_id=product_id,
+        )
+
+        if generation.status in {
+            ProductSheetGenerationStatus.TERMINE.value,
+            ProductSheetGenerationStatus.A_VALIDER.value,
+        }:
+            return {"generation": _product_sheet_generation_snapshot_to_dict(generation)}
+
+        if generation.workflow_id is None:
+            workflow_id = f"product-sheet-generation-{generation.id}"
+            generation = await self._repository.mark_product_sheet_generation_started(
+                generation_id=generation.id,
+                workflow_id=workflow_id,
+            )
+            try:
+                await self._workflow_starter.start_product_sheet_generation(
+                    product_id=str(product_id),
+                    generation_id=str(generation.id),
+                )
+            except RuntimeError as exc:
+                await self._repository.mark_product_sheet_generation_failed(
+                    generation_id=generation.id,
+                    error_message=str(exc),
+                )
+                raise
+
+        return {"generation": _product_sheet_generation_snapshot_to_dict(generation)}
+
+    async def generate_product_sheet_candidate(
+        self,
+        *,
+        generation_id: str,
+    ) -> dict[str, Any]:
+        if self._prompt_registry is None or self._product_sheet_generator is None:
+            raise RuntimeError("Générateur fiche produit non configuré.")
+
+        generation_context = await self._repository.load_product_sheet_generation_context(
+            generation_id=uuid.UUID(generation_id),
+        )
+        prompt_definition = await self._prompt_registry.get_prompt(
+            PromptSelector(
+                name=self._settings.llm.product_sheet_prompt_name,
+                version=self._settings.llm.product_sheet_prompt_version,
+            )
+        )
+        prompt = prompt_definition.compile(
+            {
+                "context_json": json.dumps(
+                    _product_sheet_generation_context_to_prompt_payload(generation_context),
+                    ensure_ascii=False,
+                    indent=2,
+                    sort_keys=True,
+                )
+            }
+        )
+        result = await self._product_sheet_generator.generate_product_sheet(prompt)
+        status, self_check = _post_check_product_sheet_generation(
+            sheet_json=result.sheet_json,
+            self_check_json=result.self_check_json,
+            context_payload=_product_sheet_generation_context_to_prompt_payload(generation_context),
+        )
+
+        return {
+            "status": status,
+            "sheet_json": result.sheet_json,
+            "self_check_json": self_check,
+            "metadata": asdict(result.metadata),
+        }
+
+    async def persist_product_sheet_generation_result(
+        self,
+        *,
+        generation_id: str,
+        generation_result: dict[str, Any],
+    ) -> dict[str, Any]:
+        metadata = generation_result["metadata"]
+        generation = await self._repository.complete_product_sheet_generation(
+            generation_id=uuid.UUID(generation_id),
+            status=generation_result["status"],
+            prompt_registry_provider=metadata["prompt_registry_provider"],
+            prompt_name=metadata["prompt_name"],
+            prompt_version=metadata["prompt_version"],
+            llm_model=metadata["llm_model"],
+            llm_temperature=metadata["llm_temperature"],
+            llm_max_tokens=metadata["llm_max_tokens"],
+            llm_response_format_name=metadata["llm_response_format"],
+            rendered_system_prompt_hash=metadata["system_prompt_hash"],
+            rendered_user_prompt_hash=metadata["user_prompt_hash"],
+            sheet_json=generation_result["sheet_json"],
+            self_check_json=generation_result["self_check_json"],
+        )
+        return _product_sheet_generation_snapshot_to_dict(generation)
+
+    async def mark_product_sheet_generation_failed(
+        self,
+        *,
+        generation_id: str,
+        error_message: str,
+    ) -> dict[str, Any]:
+        generation = await self._repository.mark_product_sheet_generation_failed(
+            generation_id=uuid.UUID(generation_id),
+            error_message=error_message,
+        )
+        return _product_sheet_generation_snapshot_to_dict(generation)
 
     async def resolve_review_case(
         self,
@@ -1298,7 +1492,7 @@ class ProductTechnicalIngestionService:
             candidate_count=len(candidate_inputs),
             review_case_count=len(validation.review_cases),
             promoted_fact_count=len(validation.promoted_facts),
-            generation_ready=validation.generation_readiness.get("ready"),
+            product_sheet_ready=validation.product_sheet_readiness.get("ready"),
         )
 
         return self._build_validate_technical_facts_result(candidate_inputs, validation)
@@ -1329,7 +1523,7 @@ class ProductTechnicalIngestionService:
                 _promoted_fact_input_to_payload(promoted_fact)
                 for promoted_fact in validation.promoted_facts
             ),
-            generation_readiness=validation.generation_readiness,
+            product_sheet_readiness=validation.product_sheet_readiness,
         )
 
     async def promote_technical_facts(
@@ -1341,7 +1535,7 @@ class ProductTechnicalIngestionService:
         review_cases: tuple[TechnicalReviewCasePayload, ...],
         promoted_facts: tuple[PromotedTechnicalFactPayload, ...],
         extraction_steps_json: dict[str, Any],
-        generation_readiness: dict[str, Any],
+        product_sheet_readiness: dict[str, Any],
     ) -> PromoteTechnicalFactsResult:
         if product.product_id is None:
             raise RuntimeError("product_id est requis pour promouvoir les facts techniques.")
@@ -1364,10 +1558,10 @@ class ProductTechnicalIngestionService:
             "technical_validation": {
                 "auto_validated": len(promoted_facts),
                 "review_cases": len(review_cases),
-                "profile_id": generation_readiness.get("profile_id"),
-                "required_fields": generation_readiness.get("required_fields", []),
+                "profile_id": product_sheet_readiness.get("profile_id"),
+                "required_fields": product_sheet_readiness.get("required_fields", []),
             },
-            "generation_readiness": generation_readiness,
+            "product_sheet_readiness": product_sheet_readiness,
         }
 
         logger.info(
@@ -1420,8 +1614,8 @@ class ProductTechnicalIngestionService:
             raise RuntimeError("product_id est requis pour finaliser la revue technique.")
 
         overview = await self._repository.get_product_overview(uuid.UUID(product.product_id))
-        generation_readiness = overview.get("generation_readiness") or {}
-        required_fields = set(generation_readiness.get("required_fields") or [])
+        product_sheet_readiness = overview.get("product_sheet_readiness") or {}
+        required_fields = set(product_sheet_readiness.get("required_fields") or [])
         facts = overview.get("facts") or []
         fact_fields = {fact.get("field_name") for fact in facts if isinstance(fact, dict)}
         missing = sorted(field for field in required_fields if field not in fact_fields)
@@ -1483,7 +1677,7 @@ class ProductTechnicalIngestionService:
 
         commercial_matched_fields: dict[str, str | None] = {}
 
-        generation_readiness: dict[str, Any] | None = None
+        product_sheet_readiness: dict[str, Any] | None = None
 
         try:
             style_pack = await self._repository.load_active_style_pack()
@@ -1526,7 +1720,7 @@ class ProductTechnicalIngestionService:
                 for requirement in requirement_profile.requirements
                 if requirement.level == "REQUIRED"
             }
-            generation_readiness = {
+            product_sheet_readiness = {
                 "profile_id": str(requirement_profile.id),
                 "required_fields": sorted(required_fact_names),
                 "ready": all(field_name in facts_by_field for field_name in required_fact_names),
@@ -1554,7 +1748,7 @@ class ProductTechnicalIngestionService:
             commercial_matched_fields=commercial_matched_fields,
             technical_fact_ids=tuple(str(fact.id) for fact in facts),
             technical_facts=tuple(_technical_fact_snapshot_to_dict(fact) for fact in facts),
-            generation_readiness=generation_readiness,
+            product_sheet_readiness=product_sheet_readiness,
         )
 
     async def create_product_context_snapshot(
@@ -1597,11 +1791,27 @@ class ProductTechnicalIngestionService:
                     "matched_fields": readiness.commercial_matched_fields,
                 },
                 "technical_facts": list(readiness.technical_facts),
-                "generation_readiness": readiness.generation_readiness,
+                "product_sheet_readiness": readiness.product_sheet_readiness,
             },
         )
 
         return CreateProductContextSnapshotResult(product_context_snapshot_id=str(result.id))
+
+    async def notify_technical_facts_ready(
+        self,
+        *,
+        product: ProductContextReference,
+        technical_ingestion_run_id: str,
+        promoted_fact_count: int,
+    ) -> None:
+        if self._workflow_starter is None:
+            raise RuntimeError("Workflow starter non configuré pour notifier les facts techniques.")
+
+        await self._workflow_starter.signal_technical_facts_ready(
+            sku=product.sku,
+            ingestion_run_id=technical_ingestion_run_id,
+            promoted_fact_count=promoted_fact_count,
+        )
 
     async def notify_style_pack_activated(self, *, style_pack_id: uuid.UUID) -> int:
         if self._workflow_starter is None:
@@ -1643,3 +1853,161 @@ class ProductTechnicalIngestionService:
             return False
 
         return True
+
+
+def _product_sheet_generation_snapshot_to_dict(
+    generation: ProductSheetGenerationSnapshot,
+) -> dict[str, Any]:
+    return {
+        "id": str(generation.id),
+        "product_id": str(generation.product_id),
+        "product_context_snapshot_id": str(generation.product_context_snapshot_id),
+        "status": generation.status,
+        "workflow_id": generation.workflow_id,
+        "prompt_registry_provider": generation.prompt_registry_provider,
+        "prompt_name": generation.prompt_name,
+        "prompt_version": generation.prompt_version,
+        "llm_model": generation.llm_model,
+        "llm_temperature": generation.llm_temperature,
+        "llm_max_tokens": generation.llm_max_tokens,
+        "llm_response_format_name": generation.llm_response_format_name,
+        "rendered_system_prompt_hash": generation.rendered_system_prompt_hash,
+        "rendered_user_prompt_hash": generation.rendered_user_prompt_hash,
+        "sheet_json": generation.sheet_json,
+        "self_check_json": generation.self_check_json,
+        "error_message": generation.error_message,
+        "started_at": generation.started_at.isoformat() if generation.started_at else None,
+        "completed_at": generation.completed_at.isoformat() if generation.completed_at else None,
+        "created_at": generation.created_at.isoformat() if generation.created_at else None,
+        "updated_at": generation.updated_at.isoformat() if generation.updated_at else None,
+    }
+
+
+def _product_sheet_generation_context_to_prompt_payload(
+    context: ProductSheetGenerationContext,
+) -> dict[str, Any]:
+    snapshot_json = context.product_context_snapshot_json
+    snapshot_payload = snapshot_json if isinstance(snapshot_json, dict) else {}
+    product_sheet_readiness = snapshot_payload.get(
+        "product_sheet_readiness"
+    ) or snapshot_payload.get("generation_readiness")
+    return {
+        "product": _product_snapshot_to_dict(context.product),
+        "product_context_snapshot_id": str(context.product_context_snapshot_id),
+        "technical_facts": [
+            _technical_fact_snapshot_to_dict(fact) for fact in context.technical_facts
+        ],
+        "product_sheet_readiness": product_sheet_readiness,
+        "do_not_mention": (
+            product_sheet_readiness.get("do_not_mention", [])
+            if isinstance(product_sheet_readiness, dict)
+            else []
+        ),
+        "style_rules": list(context.style_rules_json),
+        "commercial_signals": context.commercial_signals_json,
+        "instructions": {
+            "technical_facts_are_authoritative": True,
+            "commercial_signals_are_persuasive_only": True,
+            "publication_requires_human_review": True,
+        },
+    }
+
+
+def _first_prompt_message(messages: tuple[Any, ...], role: str) -> str:
+    for message in messages:
+        if getattr(message, "role", None) == role:
+            return str(getattr(message, "content", ""))
+    return ""
+
+
+def _post_check_product_sheet_generation(
+    *,
+    sheet_json: dict[str, Any],
+    self_check_json: dict[str, Any],
+    context_payload: dict[str, Any],
+) -> tuple[str, dict[str, Any]]:
+    reasons = list(self_check_json.get("human_review_reasons") or [])
+    technical_facts = context_payload.get("technical_facts")
+    technical_fact_items = technical_facts if isinstance(technical_facts, list) else []
+    fact_fields = {
+        fact.get("field_name")
+        for fact in technical_fact_items
+        if isinstance(fact, dict) and isinstance(fact.get("field_name"), str)
+    }
+    critical_fields = {
+        "sku",
+        "product_name",
+        "dimension_width",
+        "dimension_depth",
+        "dimension_height",
+        "material_primary",
+        "finish_primary",
+        "usage_capacity",
+    }
+    missing_critical = sorted(critical_fields - fact_fields)
+    if missing_critical:
+        reasons.append(
+            "Champs techniques critiques absents du contexte: " + ", ".join(missing_critical)
+        )
+
+    publishable_text_blob = _product_sheet_publishable_text(sheet_json).lower()
+    forbidden_phrases = [
+        "incassable",
+        "sans entretien pour toujours",
+        "résiste aux intempéries à vie",
+        "parfait en toute circonstance",
+    ]
+    forbidden_hits = [phrase for phrase in forbidden_phrases if phrase in publishable_text_blob]
+    if forbidden_hits:
+        reasons.append("Promesses interdites détectées: " + ", ".join(forbidden_hits))
+
+    post_checks = {
+        "missing_critical_fields": missing_critical,
+        "forbidden_claim_hits": forbidden_hits,
+    }
+    checked_payload = {
+        **self_check_json,
+        "requires_human_review": bool(self_check_json.get("requires_human_review") or reasons),
+        "human_review_reasons": reasons,
+        "post_checks": post_checks,
+    }
+    status = (
+        ProductSheetGenerationStatus.A_VALIDER.value
+        if checked_payload["requires_human_review"]
+        else ProductSheetGenerationStatus.TERMINE.value
+    )
+    return status, checked_payload
+
+
+def _product_sheet_publishable_text(sheet_json: dict[str, Any]) -> str:
+    text_parts: list[str] = []
+    for field_name in (
+        "title",
+        "subtitle",
+        "short_description",
+        "long_description",
+        "benefit_bullets",
+        "technical_specs",
+        "care_and_use",
+    ):
+        text_parts.extend(_iter_publishable_strings(sheet_json.get(field_name)))
+
+    return "\n".join(text_parts)
+
+
+def _iter_publishable_strings(value: Any) -> list[str]:
+    if isinstance(value, str):
+        return [value]
+
+    if isinstance(value, list):
+        return [item for entry in value for item in _iter_publishable_strings(entry)]
+
+    if isinstance(value, dict):
+        return [
+            item
+            for key, entry in value.items()
+            if key != "source_fact_field"
+            for item in _iter_publishable_strings(entry)
+        ]
+
+    return []

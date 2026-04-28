@@ -26,6 +26,7 @@ from factory_writer.domain.document_ingestion_types import (
     DocumentType,
     ExtractionMethod,
     OrigineStyleRule,
+    ProductSheetGenerationStatus,
     StatutDocumentCollection,
     StatutDocumentIngestionRun,
     StatutStylePack,
@@ -59,6 +60,7 @@ class Product(BaseModel):
     document_collections = relationship("DocumentCollection", back_populates="product")
     technical_facts = relationship("TechnicalFact", back_populates="product")
     context_snapshots = relationship("ProductContextSnapshot", back_populates="product")
+    product_sheet_generations = relationship("ProductSheetGeneration", back_populates="product")
 
 
 class CommercialSignalSnapshot(BaseModel):
@@ -392,4 +394,44 @@ class ProductContextSnapshot(BaseModel):
     style_pack = relationship("StylePack", back_populates="product_context_snapshots")
     commercial_signal_snapshot = relationship(
         "CommercialSignalSnapshot", back_populates="product_context_snapshots"
+    )
+    product_sheet_generations = relationship(
+        "ProductSheetGeneration", back_populates="product_context_snapshot"
+    )
+
+
+class ProductSheetGeneration(BaseModel):
+    __tablename__ = "product_sheet_generation"
+    __table_args__ = (
+        UniqueConstraint("workflow_id", name="uq_product_sheet_generation_workflow_id"),
+        {"comment": ("Génération POC d'une fiche produit à partir d'un contexte produit figé.")},
+    )
+
+    product_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("product.id"), index=True)
+    product_context_snapshot_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("product_context_snapshot.id"), index=True
+    )
+    status: Mapped[ProductSheetGenerationStatus] = mapped_column(
+        default=ProductSheetGenerationStatus.EN_COURS,
+        index=True,
+    )
+    workflow_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    prompt_registry_provider: Mapped[str | None] = mapped_column(String, nullable=True)
+    prompt_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    prompt_version: Mapped[str | None] = mapped_column(String, nullable=True)
+    llm_model: Mapped[str | None] = mapped_column(String, nullable=True)
+    llm_temperature: Mapped[float | None] = mapped_column(Float, nullable=True)
+    llm_max_tokens: Mapped[int | None] = mapped_column(nullable=True)
+    llm_response_format_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    rendered_system_prompt_hash: Mapped[str | None] = mapped_column(String, nullable=True)
+    rendered_user_prompt_hash: Mapped[str | None] = mapped_column(String, nullable=True)
+    sheet_json: Mapped[Any | None] = mapped_column(JSON, nullable=True)
+    self_check_json: Mapped[Any | None] = mapped_column(JSON, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(nullable=True)
+
+    product = relationship("Product", back_populates="product_sheet_generations")
+    product_context_snapshot = relationship(
+        "ProductContextSnapshot", back_populates="product_sheet_generations"
     )

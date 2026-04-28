@@ -5,6 +5,11 @@ from .llm_gateway import (
     LLMMessage,
 )
 from .object_storage import ObjectStoragePort, StoredObjectFile, UploadedObjectFile
+from .product_sheet_generation import (
+    ProductSheetGeneratorMetadata,
+    ProductSheetGeneratorPort,
+    ProductSheetGeneratorResult,
+)
 from .reasoning import ReasoningLevel
 
 __all__ = [
@@ -13,6 +18,9 @@ __all__ = [
     "LLMGatewayPort",
     "LLMMessage",
     "ObjectStoragePort",
+    "ProductSheetGeneratorMetadata",
+    "ProductSheetGeneratorPort",
+    "ProductSheetGeneratorResult",
     "ReasoningLevel",
     "StoredObjectFile",
     "UploadedObjectFile",

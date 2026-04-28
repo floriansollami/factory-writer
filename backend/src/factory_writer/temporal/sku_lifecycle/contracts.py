@@ -44,6 +44,11 @@ class CommercialSnapshotAvailableSignal(TemporalPayloadModel):
     snapshot_id: str
 
 
+class TechnicalFactsReadySignal(TemporalPayloadModel):
+    ingestion_run_id: str
+    promoted_fact_count: int = 0
+
+
 class ProductLifecycleState(TemporalPayloadModel):
     status: WorkflowExecutionStatus = WorkflowExecutionStatus.WAITING_TECHNICAL_SOURCES
     product_loaded: bool = False
@@ -51,10 +56,11 @@ class ProductLifecycleState(TemporalPayloadModel):
     technical_ingestion_run_id: str | None = None
     technical_document_source_ids: tuple[str, ...] = Field(default_factory=tuple)
     technical_facts_ready: bool = False
+    promoted_fact_count: int = 0
     product_context_snapshot_id: str | None = None
     style_pack_id: str | None = None
     commercial_signal_snapshot_id: str | None = None
-    readiness_event_count: int = 0
+    readiness_signal_count: int = 0
     waiting_reason: str | None = None
 
 
@@ -97,6 +103,7 @@ class ProductContextReadinessResult(TemporalPayloadModel):
     commercial_matched_fields: dict[str, str | None] = Field(default_factory=dict)
     technical_fact_ids: tuple[str, ...] = Field(default_factory=tuple)
     technical_facts: tuple[dict[str, Any], ...] = Field(default_factory=tuple)
+    product_sheet_readiness: dict[str, Any] | None = None
 
 
 class CreateProductContextSnapshotInput(TemporalPayloadModel):

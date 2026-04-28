@@ -44,6 +44,9 @@ class LLMSettings(BaseModel):
     style_guide_timeout_seconds: float = 180.0
     style_guide_prompt_name: str = "style_guide_extract_rules"
     style_guide_prompt_version: str = "v1"
+    product_sheet_timeout_seconds: float = 120.0
+    product_sheet_prompt_name: str = "product_sheet_generate"
+    product_sheet_prompt_version: str = "v1"
 
 
 class TechnicalDossierSettings(BaseModel):

@@ -21,5 +21,6 @@ class WorkflowExecutionStatus(StrEnum):
     PENDING_TECH_REVIEW = "pending_tech_review"
     GENERATING_COPY = "generating_copy"
     PENDING_EDITOR_REVIEW = "pending_editor_review"
+    PRODUCT_SHEET_READY = "product_sheet_ready"
     PUBLISHED = "published"
     FAILED = "failed"

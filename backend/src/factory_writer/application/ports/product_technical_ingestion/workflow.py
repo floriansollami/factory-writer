@@ -120,7 +120,7 @@ class ValidateTechnicalFactsResult:
     candidates: tuple[TechnicalFactCandidatePayload, ...]
     review_cases: tuple[TechnicalReviewCasePayload, ...]
     promoted_facts: tuple[PromotedTechnicalFactPayload, ...]
-    generation_readiness: dict[str, Any] = field(default_factory=dict)
+    product_sheet_readiness: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -149,7 +149,7 @@ class ProductContextReadiness:
     commercial_matched_fields: dict[str, str | None] = field(default_factory=dict)
     technical_fact_ids: tuple[str, ...] = field(default_factory=tuple)
     technical_facts: tuple[dict[str, Any], ...] = field(default_factory=tuple)
-    generation_readiness: dict[str, Any] | None = None
+    product_sheet_readiness: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -166,10 +166,25 @@ class ProductLifecycleWorkflowPort(Protocol):
         payload: TechnicalSourcesUploaded,
     ) -> str: ...
 
+    async def start_product_sheet_generation(
+        self,
+        *,
+        product_id: str,
+        generation_id: str,
+    ) -> str: ...
+
     async def signal_technical_sources_uploaded(
         self,
         sku: str,
         payload: TechnicalSourcesUploaded,
+    ) -> None: ...
+
+    async def signal_technical_facts_ready(
+        self,
+        *,
+        sku: str,
+        ingestion_run_id: str,
+        promoted_fact_count: int,
     ) -> None: ...
 
     async def signal_technical_review_case_resolved(

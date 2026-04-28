@@ -143,6 +143,42 @@ class ProductContextSnapshotResult:
 
 
 @dataclass(frozen=True)
+class ProductSheetGenerationSnapshot:
+    id: uuid.UUID
+    product_id: uuid.UUID
+    product_context_snapshot_id: uuid.UUID
+    status: str
+    workflow_id: str | None
+    prompt_registry_provider: str | None
+    prompt_name: str | None
+    prompt_version: str | None
+    llm_model: str | None
+    llm_temperature: float | None
+    llm_max_tokens: int | None
+    llm_response_format_name: str | None
+    rendered_system_prompt_hash: str | None
+    rendered_user_prompt_hash: str | None
+    sheet_json: Any | None
+    self_check_json: Any | None
+    error_message: str | None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+@dataclass(frozen=True)
+class ProductSheetGenerationContext:
+    generation: ProductSheetGenerationSnapshot
+    product: ProductSnapshot
+    product_context_snapshot_id: uuid.UUID
+    product_context_snapshot_json: Any
+    technical_facts: tuple[TechnicalFactSnapshot, ...]
+    style_rules_json: tuple[dict[str, Any], ...]
+    commercial_signals_json: dict[str, Any]
+
+
+@dataclass(frozen=True)
 class TechnicalFactCandidateInput:
     source_id: uuid.UUID
     field_name: str
@@ -305,6 +341,50 @@ class ProductTechnicalRepositoryPort(Protocol):
         technical_fact_ids: tuple[uuid.UUID, ...],
         snapshot_json: Any,
     ) -> ProductContextSnapshotResult: ...
+
+    async def prepare_product_sheet_generation(
+        self,
+        *,
+        product_id: uuid.UUID,
+    ) -> ProductSheetGenerationSnapshot: ...
+
+    async def mark_product_sheet_generation_started(
+        self,
+        *,
+        generation_id: uuid.UUID,
+        workflow_id: str,
+    ) -> ProductSheetGenerationSnapshot: ...
+
+    async def load_product_sheet_generation_context(
+        self,
+        *,
+        generation_id: uuid.UUID,
+    ) -> ProductSheetGenerationContext: ...
+
+    async def complete_product_sheet_generation(
+        self,
+        *,
+        generation_id: uuid.UUID,
+        status: str,
+        prompt_registry_provider: str,
+        prompt_name: str,
+        prompt_version: str,
+        llm_model: str,
+        llm_temperature: float,
+        llm_max_tokens: int,
+        llm_response_format_name: str,
+        rendered_system_prompt_hash: str,
+        rendered_user_prompt_hash: str,
+        sheet_json: Any,
+        self_check_json: Any,
+    ) -> ProductSheetGenerationSnapshot: ...
+
+    async def mark_product_sheet_generation_failed(
+        self,
+        *,
+        generation_id: uuid.UUID,
+        error_message: str,
+    ) -> ProductSheetGenerationSnapshot: ...
 
     async def list_products_for_style_pack_activation(
         self,

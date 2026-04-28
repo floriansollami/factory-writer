@@ -74,6 +74,17 @@ async def get_product_overview(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
 
+@router.get("/{product_id}/product-sheet/generation-debug")
+async def get_product_sheet_generation_debug(
+    product_id: uuid.UUID,
+    service: ProductTechnicalIngestionService = Depends(get_product_read_service),
+) -> dict[str, Any]:
+    try:
+        return await service.get_product_sheet_generation_debug(product_id=product_id)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
 @router.post("/{product_id}/technical-sources", status_code=status.HTTP_201_CREATED)
 async def upload_technical_sources(
     product_id: uuid.UUID,
@@ -109,6 +120,17 @@ async def start_technical_sources_ingestion(
 ) -> dict[str, Any]:
     try:
         return await service.start_technical_ingestion(product_id=product_id)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.post("/{product_id}/product-sheet/generate")
+async def generate_product_sheet(
+    product_id: uuid.UUID,
+    service: ProductTechnicalIngestionService = Depends(get_product_workflow_service),
+) -> dict[str, Any]:
+    try:
+        return await service.start_product_sheet_generation(product_id=product_id)
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 

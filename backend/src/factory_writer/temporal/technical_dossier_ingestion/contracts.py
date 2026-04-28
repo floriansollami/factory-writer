@@ -152,7 +152,7 @@ class ValidateTechnicalFactsResult(TemporalPayloadModel):
     candidates: tuple[TechnicalFactCandidatePayload, ...]
     review_cases: tuple[TechnicalReviewCasePayload, ...]
     promoted_facts: tuple[PromotedTechnicalFactPayload, ...]
-    generation_readiness: dict[str, Any] = Field(default_factory=dict)
+    product_sheet_readiness: dict[str, Any] = Field(default_factory=dict)
 
 
 class PromoteTechnicalFactsInput(TemporalPayloadModel):
@@ -162,7 +162,7 @@ class PromoteTechnicalFactsInput(TemporalPayloadModel):
     review_cases: tuple[TechnicalReviewCasePayload, ...]
     promoted_facts: tuple[PromotedTechnicalFactPayload, ...]
     extraction_steps_json: dict[str, Any]
-    generation_readiness: dict[str, Any] = Field(default_factory=dict)
+    product_sheet_readiness: dict[str, Any] = Field(default_factory=dict)
 
 
 class PromoteTechnicalFactsResult(TemporalPayloadModel):
@@ -180,6 +180,16 @@ class FinalizeTechnicalReviewResult(TemporalPayloadModel):
     promoted_fact_count: int
 
 
+class NotifyTechnicalFactsReadyInput(TemporalPayloadModel):
+    product: ProductContextRef
+    ingestion_run_id: str
+    promoted_fact_count: int = 0
+
+
+class NotifyTechnicalFactsReadyResult(TemporalPayloadModel):
+    notified: bool = True
+
+
 class MarkTechnicalIngestionFailedInput(TemporalPayloadModel):
     product: ProductContextRef
     error_message: str
@@ -193,6 +203,8 @@ __all__ = [
     "FinalizeTechnicalReviewInput",
     "FinalizeTechnicalReviewResult",
     "MarkTechnicalIngestionFailedInput",
+    "NotifyTechnicalFactsReadyInput",
+    "NotifyTechnicalFactsReadyResult",
     "PersistClassificationInput",
     "PersistClassificationResult",
     "PersistTechnicalFactCandidatesInput",

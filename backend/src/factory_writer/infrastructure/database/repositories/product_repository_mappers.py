@@ -9,6 +9,7 @@ from factory_writer.application.ports.product_technical_ingestion import (
     DocumentSourceSnapshot,
     IngestionRunSnapshot,
     ProductContextSnapshotResult,
+    ProductSheetGenerationSnapshot,
     ProductSheetRequirementProfileSnapshot,
     ProductSnapshot,
 )
@@ -24,6 +25,7 @@ from factory_writer.infrastructure.database.models.poc_ingestion import (
     DocumentSource,
     Product,
     ProductContextSnapshot,
+    ProductSheetGeneration,
     ProductSheetRequirementProfile,
     TechnicalFact,
     TechnicalFactCandidate,
@@ -139,6 +141,73 @@ def _to_product_context_snapshot_result(
         commercial_signal_snapshot_id=snapshot.commercial_signal_snapshot_id,
         technical_fact_ids=tuple(uuid.UUID(value) for value in snapshot.technical_fact_ids),
     )
+
+
+def _to_product_sheet_generation_snapshot(
+    generation: ProductSheetGeneration,
+) -> ProductSheetGenerationSnapshot:
+    return ProductSheetGenerationSnapshot(
+        id=generation.id,
+        product_id=generation.product_id,
+        product_context_snapshot_id=generation.product_context_snapshot_id,
+        status=generation.status.value,
+        workflow_id=generation.workflow_id,
+        prompt_registry_provider=generation.prompt_registry_provider,
+        prompt_name=generation.prompt_name,
+        prompt_version=generation.prompt_version,
+        llm_model=generation.llm_model,
+        llm_temperature=generation.llm_temperature,
+        llm_max_tokens=generation.llm_max_tokens,
+        llm_response_format_name=generation.llm_response_format_name,
+        rendered_system_prompt_hash=generation.rendered_system_prompt_hash,
+        rendered_user_prompt_hash=generation.rendered_user_prompt_hash,
+        sheet_json=generation.sheet_json,
+        self_check_json=generation.self_check_json,
+        error_message=generation.error_message,
+        started_at=generation.started_at,
+        completed_at=generation.completed_at,
+        created_at=generation.created_at,
+        updated_at=generation.updated_at,
+    )
+
+
+def _product_sheet_generation_to_dict(
+    generation: ProductSheetGenerationSnapshot | None,
+) -> dict[str, Any] | None:
+    if generation is None:
+        return None
+
+    return {
+        "id": str(generation.id),
+        "product_id": str(generation.product_id),
+        "product_context_snapshot_id": str(generation.product_context_snapshot_id),
+        "status": generation.status,
+        "workflow_id": generation.workflow_id,
+        "prompt_registry_provider": generation.prompt_registry_provider,
+        "prompt_name": generation.prompt_name,
+        "prompt_version": generation.prompt_version,
+        "llm_model": generation.llm_model,
+        "llm_temperature": generation.llm_temperature,
+        "llm_max_tokens": generation.llm_max_tokens,
+        "llm_response_format_name": generation.llm_response_format_name,
+        "rendered_system_prompt_hash": generation.rendered_system_prompt_hash,
+        "rendered_user_prompt_hash": generation.rendered_user_prompt_hash,
+        "sheet_json": generation.sheet_json,
+        "self_check_json": generation.self_check_json,
+        "error_message": generation.error_message,
+        "started_at": (
+            generation.started_at.isoformat() if generation.started_at is not None else None
+        ),
+        "completed_at": (
+            generation.completed_at.isoformat() if generation.completed_at is not None else None
+        ),
+        "created_at": (
+            generation.created_at.isoformat() if generation.created_at is not None else None
+        ),
+        "updated_at": (
+            generation.updated_at.isoformat() if generation.updated_at is not None else None
+        ),
+    }
 
 
 def _product_to_dict(product: ProductSnapshot) -> dict[str, Any]:

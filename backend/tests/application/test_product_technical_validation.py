@@ -28,6 +28,7 @@ from factory_writer.application.services.product_technical_ingestion_mappers imp
 )
 from factory_writer.application.services.product_technical_ingestion_service import (
     ProductTechnicalIngestionService,
+    _post_check_product_sheet_generation,
 )
 from factory_writer.application.services.technical_classification_validation import (
     classification_review_cases as _classification_review_cases,
@@ -87,7 +88,7 @@ def test_validate_technical_candidates_promotes_complete_sourced_facts() -> None
         "assembly_people_required",
         "eco_certifications",
     }
-    assert result.generation_readiness["ready"] is True
+    assert result.product_sheet_readiness["ready"] is True
 
 
 def test_validate_technical_candidates_blocks_missing_required_fact() -> None:
@@ -113,8 +114,8 @@ def test_validate_technical_candidates_blocks_missing_required_fact() -> None:
     assert "dimension_width" in missing_fields
     assert "finish_primary" in missing_fields
     assert "eco_certifications" not in missing_fields
-    assert result.generation_readiness["ready"] is False
-    assert "eco_certifications" in result.generation_readiness["do_not_mention"]
+    assert result.product_sheet_readiness["ready"] is False
+    assert "eco_certifications" in result.product_sheet_readiness["do_not_mention"]
 
 
 def test_validate_technical_candidates_blocks_contradiction() -> None:
@@ -208,7 +209,7 @@ def test_validate_technical_candidates_keeps_usage_capacity_source_text() -> Non
     assert result.review_cases == []
     assert len(result.promoted_facts) == 1
     assert result.promoted_facts[0].value == "8 couverts"
-    assert result.generation_readiness["field_checks"][0]["selected_values"] == ["8 couverts"]
+    assert result.product_sheet_readiness["field_checks"][0]["selected_values"] == ["8 couverts"]
 
 
 def test_validate_technical_candidates_blocks_usage_capacity_numeric_conflict() -> None:
@@ -318,9 +319,9 @@ def test_validate_technical_candidates_ignores_low_confidence_optional_value() -
 
     assert result.review_cases == []
     assert result.promoted_facts == []
-    assert result.generation_readiness["field_checks"][0]["status"] == "SKIPPED"
+    assert result.product_sheet_readiness["field_checks"][0]["status"] == "SKIPPED"
     assert (
-        result.generation_readiness["field_checks"][0]["blocking_reason"]
+        result.product_sheet_readiness["field_checks"][0]["blocking_reason"]
         == "IGNORED_LOW_CONFIDENCE"
     )
 
@@ -768,6 +769,87 @@ def test_readiness_waiting_status_maps_missing_style_pack() -> None:
 
 def test_readiness_waiting_status_maps_missing_commercial_snapshot() -> None:
     assert _readiness_waiting_status(["commercial_snapshot"]) == STATUS_WAITING_COMMERCIAL_SNAPSHOT
+
+
+def test_product_sheet_post_check_ignores_blocked_claims_control_field() -> None:
+    status, self_check = _post_check_product_sheet_generation(
+        sheet_json={
+            "title": "Table Rivage 220",
+            "subtitle": "Table de repas extérieure en teck",
+            "short_description": "Une table généreuse pour les repas d'été.",
+            "long_description": "Le teck et la ligne sobre structurent l'espace extérieur.",
+            "benefit_bullets": ["8 couverts", "Plateau en teck", "Finition huilée"],
+            "technical_specs": [
+                {
+                    "label": "Largeur",
+                    "value": "220 cm",
+                    "source_fact_field": "dimension_width",
+                },
+                {
+                    "label": "Matière",
+                    "value": "teck",
+                    "source_fact_field": "material_primary",
+                },
+            ],
+            "care_and_use": ["Nettoyer avec un chiffon doux."],
+            "blocked_claims": ["incassable", "sans entretien pour toujours"],
+            "proof_ledger": [
+                {
+                    "section": "Claims bloqués",
+                    "source_fact_fields": ["unsupported_claims"],
+                    "evidence": "sans entretien pour toujours",
+                }
+            ],
+            "requires_human_review": False,
+            "human_review_reasons": [],
+        },
+        self_check_json={"requires_human_review": False, "human_review_reasons": []},
+        context_payload={"technical_facts": _critical_generation_facts()},
+    )
+
+    assert status == "TERMINE"
+    assert self_check["post_checks"]["forbidden_claim_hits"] == []
+
+
+def test_product_sheet_post_check_flags_forbidden_claims_in_publishable_text() -> None:
+    status, self_check = _post_check_product_sheet_generation(
+        sheet_json={
+            "title": "Table Rivage 220 incassable",
+            "subtitle": "Table de repas extérieure en teck",
+            "short_description": "Une table généreuse pour les repas d'été.",
+            "long_description": "Le teck et la ligne sobre structurent l'espace extérieur.",
+            "benefit_bullets": ["8 couverts", "Plateau en teck", "Finition huilée"],
+            "technical_specs": [
+                {
+                    "label": "Largeur",
+                    "value": "220 cm",
+                    "source_fact_field": "dimension_width",
+                }
+            ],
+            "care_and_use": ["Nettoyer avec un chiffon doux."],
+            "blocked_claims": [],
+            "requires_human_review": False,
+            "human_review_reasons": [],
+        },
+        self_check_json={"requires_human_review": False, "human_review_reasons": []},
+        context_payload={"technical_facts": _critical_generation_facts()},
+    )
+
+    assert status == "A_VALIDER"
+    assert self_check["post_checks"]["forbidden_claim_hits"] == ["incassable"]
+
+
+def _critical_generation_facts() -> list[dict[str, str]]:
+    return [
+        {"field_name": "sku"},
+        {"field_name": "product_name"},
+        {"field_name": "dimension_width"},
+        {"field_name": "dimension_depth"},
+        {"field_name": "dimension_height"},
+        {"field_name": "material_primary"},
+        {"field_name": "finish_primary"},
+        {"field_name": "usage_capacity"},
+    ]
 
 
 def _candidate(

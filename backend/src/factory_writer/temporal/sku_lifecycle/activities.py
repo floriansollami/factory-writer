@@ -119,6 +119,7 @@ def _to_temporal_readiness(readiness: ProductContextReadiness) -> ProductContext
         commercial_matched_fields=readiness.commercial_matched_fields,
         technical_fact_ids=readiness.technical_fact_ids,
         technical_facts=readiness.technical_facts,
+        product_sheet_readiness=readiness.product_sheet_readiness,
     )
 
 
@@ -148,4 +149,5 @@ def _to_app_readiness(readiness: ProductContextReadinessResult) -> ProductContex
         commercial_matched_fields=readiness.commercial_matched_fields,
         technical_fact_ids=readiness.technical_fact_ids,
         technical_facts=readiness.technical_facts,
+        product_sheet_readiness=readiness.product_sheet_readiness,
     )

@@ -223,6 +223,51 @@ engine.dispose()
 PY
 }
 
+schema_has_required_poc_tables() {
+  cd "$ROOT_DIR/backend"
+  DB__URL="$DB_URL" uv run python - <<'PY'
+import os
+
+import psycopg
+from sqlalchemy.engine import make_url
+
+REQUIRED_TABLES = {
+    "product",
+    "document_collection",
+    "document_source",
+    "document_ingestion_run",
+    "technical_fact_candidate",
+    "technical_fact",
+    "technical_review_case",
+    "product_context_snapshot",
+    "commercial_signal_snapshot",
+    "product_sheet_requirement_profile",
+    "product_sheet_generation",
+}
+
+url = make_url(os.environ["DB__URL"]).set(drivername="postgresql")
+dsn = url.render_as_string(hide_password=False)
+
+with psycopg.connect(dsn) as conn:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT tablename
+            FROM pg_tables
+            WHERE schemaname = 'public'
+              AND tablename = ANY(%s)
+            """,
+            (list(REQUIRED_TABLES),),
+        )
+        existing_tables = {row[0] for row in cur.fetchall()}
+
+missing_tables = sorted(REQUIRED_TABLES - existing_tables)
+if missing_tables:
+    print(", ".join(missing_tables))
+    raise SystemExit(1)
+PY
+}
+
 reset_local_poc_state() {
   cd "$ROOT_DIR/backend"
   DB__URL="$DB_URL" uv run python - <<'PY'
@@ -233,6 +278,7 @@ from psycopg import sql
 from sqlalchemy.engine import make_url
 
 TABLES = [
+    "product_sheet_generation",
     "product_context_snapshot",
     "style_rule",
     "style_pack",
@@ -279,6 +325,17 @@ run_migrations() {
     cd "$ROOT_DIR/backend" &&
     DB__URL="$DB_URL" uv run alembic upgrade head >"$migration_log" 2>&1
   ); then
+    local missing_tables
+    if missing_tables="$(schema_has_required_poc_tables 2>/dev/null)"; then
+      return
+    fi
+
+    echo "Schéma local POC incomplet détecté (${missing_tables}), reset du schéma public..."
+    reset_local_database_schema
+    (
+      cd "$ROOT_DIR/backend" &&
+      DB__URL="$DB_URL" uv run alembic upgrade head >"$migration_log" 2>&1
+    )
     return
   fi
 

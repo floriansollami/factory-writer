@@ -43,6 +43,10 @@ class LocalStyleGuidePromptRegistry(PromptRegistryPort):
         )
 
 
+class LocalPromptRegistry(LocalStyleGuidePromptRegistry):
+    """Alias générique du registry local, conservant la compatibilité style guide."""
+
+
 def _load_manifest(prompt_name: str, version: str) -> ModuleType:
     module_path = f"{_PROMPTS_PACKAGE}.{prompt_name}.{version}.manifest"
     try:

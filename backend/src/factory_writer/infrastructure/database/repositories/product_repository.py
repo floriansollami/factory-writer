@@ -6,13 +6,15 @@ from typing import Any
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-from sqlalchemy.orm import joinedload, selectinload
+from sqlalchemy.orm import selectinload
 
 from factory_writer.application.ports.product_technical_ingestion import (
     CommercialSignalSnapshotSelection,
     DocumentSourceSnapshot,
     IngestionRunSnapshot,
     ProductContextSnapshotResult,
+    ProductSheetGenerationContext,
+    ProductSheetGenerationSnapshot,
     ProductSheetRequirementProfileSnapshot,
     ProductSnapshot,
     ProductTaxonomySnapshot,
@@ -30,6 +32,7 @@ from factory_writer.domain.document_ingestion_types import (
     CurrentStep,
     DocumentType,
     ExtractionMethod,
+    ProductSheetGenerationStatus,
     StatutDocumentCollection,
     StatutDocumentIngestionRun,
     StatutStylePack,
@@ -48,8 +51,10 @@ from factory_writer.infrastructure.database.models.poc_ingestion import (
     DocumentSource,
     Product,
     ProductContextSnapshot,
+    ProductSheetGeneration,
     ProductSheetRequirementProfile,
     StylePack,
+    StyleRule,
     TechnicalFact,
     TechnicalFactCandidate,
     TechnicalReviewCase,
@@ -62,6 +67,7 @@ from factory_writer.infrastructure.database.repositories.product_repository_mapp
     _collection_to_dict,
     _commercial_snapshot_missing_message,
     _is_routable_technical_document_type,
+    _product_sheet_generation_to_dict,
     _product_sheet_requirement_profile_specificity,
     _product_taxonomy_load_option,
     _product_to_dict,
@@ -74,6 +80,7 @@ from factory_writer.infrastructure.database.repositories.product_repository_mapp
     _technical_fact_to_dict,
     _to_document_type,
     _to_product_context_snapshot_result,
+    _to_product_sheet_generation_snapshot,
     _to_product_sheet_requirement_profile_snapshot,
 )
 
@@ -765,6 +772,174 @@ class ProductRepository:
             await session.flush()
             return _to_product_context_snapshot_result(context_snapshot)
 
+    async def prepare_product_sheet_generation(
+        self,
+        *,
+        product_id: uuid.UUID,
+    ) -> ProductSheetGenerationSnapshot:
+        async with self._session_factory() as session, session.begin():
+            product = await self._require_product(session, product_id, for_update=True)
+            context_snapshot = await self._get_latest_product_context_snapshot(
+                session,
+                product.id,
+            )
+            if context_snapshot is None:
+                raise RuntimeError(
+                    "Le contexte produit n'est pas prêt pour générer la fiche produit."
+                )
+
+            existing = await self._get_latest_product_sheet_generation(
+                session,
+                product.id,
+                context_snapshot.id,
+                for_update=True,
+            )
+            if existing is not None and existing.status in {
+                ProductSheetGenerationStatus.EN_COURS,
+                ProductSheetGenerationStatus.TERMINE,
+                ProductSheetGenerationStatus.A_VALIDER,
+            }:
+                return _to_product_sheet_generation_snapshot(existing)
+
+            now = datetime.now(UTC)
+            generation = ProductSheetGeneration(
+                product_id=product.id,
+                product_context_snapshot_id=context_snapshot.id,
+                status=ProductSheetGenerationStatus.EN_COURS,
+                started_at=now,
+            )
+            session.add(generation)
+            await session.flush()
+            return _to_product_sheet_generation_snapshot(generation)
+
+    async def mark_product_sheet_generation_started(
+        self,
+        *,
+        generation_id: uuid.UUID,
+        workflow_id: str,
+    ) -> ProductSheetGenerationSnapshot:
+        async with self._session_factory() as session, session.begin():
+            generation = await self._require_product_sheet_generation(
+                session,
+                generation_id,
+                for_update=True,
+            )
+            generation.workflow_id = workflow_id
+            generation.status = ProductSheetGenerationStatus.EN_COURS
+            generation.error_message = None
+            if generation.started_at is None:
+                generation.started_at = datetime.now(UTC)
+            await session.flush()
+            return _to_product_sheet_generation_snapshot(generation)
+
+    async def load_product_sheet_generation_context(
+        self,
+        *,
+        generation_id: uuid.UUID,
+    ) -> ProductSheetGenerationContext:
+        async with self._session_factory() as session:
+            generation = await self._require_product_sheet_generation(
+                session,
+                generation_id,
+                load_context=True,
+            )
+            product = generation.product
+            context_snapshot = generation.product_context_snapshot
+            style_pack = context_snapshot.style_pack
+            commercial_snapshot = context_snapshot.commercial_signal_snapshot
+            facts = await self._list_technical_facts_by_ids(
+                session,
+                tuple(uuid.UUID(value) for value in context_snapshot.technical_fact_ids),
+            )
+            return ProductSheetGenerationContext(
+                generation=_to_product_sheet_generation_snapshot(generation),
+                product=self._to_product_snapshot(product),
+                product_context_snapshot_id=context_snapshot.id,
+                product_context_snapshot_json=context_snapshot.snapshot_json,
+                technical_facts=facts,
+                style_rules_json=tuple(
+                    {
+                        "type_regle": rule.type_regle.value,
+                        "niveau_contrainte": rule.niveau_contrainte.value,
+                        "texte_regle": rule.texte_regle,
+                        "famille_code": (
+                            rule.taxonomie_produit.famille_code
+                            if rule.taxonomie_produit is not None
+                            else None
+                        ),
+                    }
+                    for rule in style_pack.style_rules
+                    if rule.est_actif
+                ),
+                commercial_signals_json={
+                    "snapshot_id": commercial_snapshot.snapshot_id,
+                    "cohort_key": commercial_snapshot.cohort_key,
+                    "famille_code": commercial_snapshot.famille_code,
+                    "segment_prix_code": commercial_snapshot.segment_prix_code,
+                    "season_code": commercial_snapshot.season_code,
+                    "sales_signals": commercial_snapshot.sales_signals_json,
+                    "feedback_signals": commercial_snapshot.feedback_signals_json,
+                },
+            )
+
+    async def complete_product_sheet_generation(
+        self,
+        *,
+        generation_id: uuid.UUID,
+        status: str,
+        prompt_registry_provider: str,
+        prompt_name: str,
+        prompt_version: str,
+        llm_model: str,
+        llm_temperature: float,
+        llm_max_tokens: int,
+        llm_response_format_name: str,
+        rendered_system_prompt_hash: str,
+        rendered_user_prompt_hash: str,
+        sheet_json: Any,
+        self_check_json: Any,
+    ) -> ProductSheetGenerationSnapshot:
+        async with self._session_factory() as session, session.begin():
+            generation = await self._require_product_sheet_generation(
+                session,
+                generation_id,
+                for_update=True,
+            )
+            generation.status = ProductSheetGenerationStatus(status)
+            generation.prompt_registry_provider = prompt_registry_provider
+            generation.prompt_name = prompt_name
+            generation.prompt_version = prompt_version
+            generation.llm_model = llm_model
+            generation.llm_temperature = llm_temperature
+            generation.llm_max_tokens = llm_max_tokens
+            generation.llm_response_format_name = llm_response_format_name
+            generation.rendered_system_prompt_hash = rendered_system_prompt_hash
+            generation.rendered_user_prompt_hash = rendered_user_prompt_hash
+            generation.sheet_json = sheet_json
+            generation.self_check_json = self_check_json
+            generation.error_message = None
+            generation.completed_at = datetime.now(UTC)
+            await session.flush()
+            return _to_product_sheet_generation_snapshot(generation)
+
+    async def mark_product_sheet_generation_failed(
+        self,
+        *,
+        generation_id: uuid.UUID,
+        error_message: str,
+    ) -> ProductSheetGenerationSnapshot:
+        async with self._session_factory() as session, session.begin():
+            generation = await self._require_product_sheet_generation(
+                session,
+                generation_id,
+                for_update=True,
+            )
+            generation.status = ProductSheetGenerationStatus.ERREUR
+            generation.error_message = error_message
+            generation.completed_at = datetime.now(UTC)
+            await session.flush()
+            return _to_product_sheet_generation_snapshot(generation)
+
     async def list_products_for_style_pack_activation(
         self,
         *,
@@ -826,7 +1001,7 @@ class ProductRepository:
                 select(TechnicalReviewCase)
                 .where(TechnicalReviewCase.id == case_id)
                 .options(
-                    joinedload(TechnicalReviewCase.ingestion_run).joinedload(
+                    selectinload(TechnicalReviewCase.ingestion_run).selectinload(
                         DocumentIngestionRun.collection
                     )
                 )
@@ -924,6 +1099,8 @@ class ProductRepository:
                     if action == TechnicalReviewResolutionAction.CORRECT_VALUE
                     else TechnicalReviewStatus.APPROUVE
                 )
+
+            await session.flush()
 
             open_review_case_count = await self._count_open_technical_review_cases(
                 session,
@@ -1052,6 +1229,16 @@ class ProductRepository:
                     ).all()
                 )
 
+            product_sheet_generation = await self._get_latest_product_sheet_generation_for_product(
+                session,
+                product_id,
+            )
+            product_sheet_generation_snapshot = (
+                _to_product_sheet_generation_snapshot(product_sheet_generation)
+                if product_sheet_generation is not None
+                else None
+            )
+
             return {
                 "product": _product_to_dict(self._to_product_snapshot(product)),
                 "technical_collection": _collection_to_dict(collection) if collection else None,
@@ -1079,8 +1266,9 @@ class ProductRepository:
                     if run is not None
                     else None
                 ),
-                "generation_readiness": (
-                    (run.validation_summary_json or {}).get("generation_readiness")
+                "product_sheet_readiness": (
+                    (run.validation_summary_json or {}).get("product_sheet_readiness")
+                    or (run.validation_summary_json or {}).get("generation_readiness")
                     if run is not None
                     else None
                 ),
@@ -1089,7 +1277,111 @@ class ProductRepository:
                     if run is not None
                     else None
                 ),
+                "product_sheet_generation": _product_sheet_generation_to_dict(
+                    product_sheet_generation_snapshot
+                ),
             }
+
+    async def _get_latest_product_context_snapshot(
+        self,
+        session: AsyncSession,
+        product_id: uuid.UUID,
+    ) -> ProductContextSnapshot | None:
+        stmt = (
+            select(ProductContextSnapshot)
+            .where(ProductContextSnapshot.product_id == product_id)
+            .order_by(ProductContextSnapshot.created_at.desc())
+        )
+        return (await session.scalars(stmt)).first()
+
+    async def _get_latest_product_sheet_generation(
+        self,
+        session: AsyncSession,
+        product_id: uuid.UUID,
+        context_snapshot_id: uuid.UUID,
+        *,
+        for_update: bool = False,
+    ) -> ProductSheetGeneration | None:
+        stmt = (
+            select(ProductSheetGeneration)
+            .where(
+                ProductSheetGeneration.product_id == product_id,
+                ProductSheetGeneration.product_context_snapshot_id == context_snapshot_id,
+            )
+            .order_by(ProductSheetGeneration.created_at.desc())
+        )
+        if for_update:
+            stmt = stmt.with_for_update()
+        return (await session.scalars(stmt)).first()
+
+    async def _get_latest_product_sheet_generation_for_product(
+        self,
+        session: AsyncSession,
+        product_id: uuid.UUID,
+    ) -> ProductSheetGeneration | None:
+        stmt = (
+            select(ProductSheetGeneration)
+            .where(ProductSheetGeneration.product_id == product_id)
+            .order_by(ProductSheetGeneration.created_at.desc())
+        )
+        return (await session.scalars(stmt)).first()
+
+    async def _require_product_sheet_generation(
+        self,
+        session: AsyncSession,
+        generation_id: uuid.UUID,
+        *,
+        for_update: bool = False,
+        load_context: bool = False,
+    ) -> ProductSheetGeneration:
+        stmt = select(ProductSheetGeneration).where(ProductSheetGeneration.id == generation_id)
+        if load_context:
+            stmt = stmt.options(
+                selectinload(ProductSheetGeneration.product)
+                .selectinload(Product.taxonomie_produit)
+                .selectinload(TaxonomieProduit.parent),
+                selectinload(ProductSheetGeneration.product_context_snapshot)
+                .selectinload(ProductContextSnapshot.style_pack)
+                .selectinload(StylePack.style_rules)
+                .selectinload(StyleRule.taxonomie_produit),
+                selectinload(ProductSheetGeneration.product_context_snapshot).selectinload(
+                    ProductContextSnapshot.commercial_signal_snapshot
+                ),
+            )
+        if for_update:
+            stmt = stmt.with_for_update()
+        generation = (await session.scalars(stmt)).first()
+        if generation is None:
+            raise RuntimeError("Génération de fiche produit introuvable.")
+        return generation
+
+    async def _list_technical_facts_by_ids(
+        self,
+        session: AsyncSession,
+        fact_ids: tuple[uuid.UUID, ...],
+    ) -> tuple[TechnicalFactSnapshot, ...]:
+        if not fact_ids:
+            return ()
+
+        facts = list(
+            (
+                await session.scalars(
+                    select(TechnicalFact)
+                    .where(TechnicalFact.id.in_(fact_ids))
+                    .order_by(TechnicalFact.field_name, TechnicalFact.occurrence_index)
+                )
+            ).all()
+        )
+        return tuple(
+            TechnicalFactSnapshot(
+                id=fact.id,
+                field_name=fact.field_name,
+                occurrence_index=fact.occurrence_index,
+                value=fact.value,
+                unit=fact.unit,
+            )
+            for fact in facts
+        )
 
     async def _resolve_product_taxonomy(
         self,

@@ -15,6 +15,7 @@ from factory_writer.temporal.technical_dossier_ingestion.contracts import (
     ExtractTechnicalFactCandidatesInput,
     FinalizeTechnicalReviewInput,
     MarkTechnicalIngestionFailedInput,
+    NotifyTechnicalFactsReadyInput,
     PersistClassificationInput,
     PersistTechnicalFactCandidatesInput,
     PrepareTechnicalIngestionInput,
@@ -294,7 +295,7 @@ class TechnicalDossierIngestionWorkflow:
             f"ingestion_run_id={prepared.ingestion_run_id} "
             f"review_case_count={len(validation.review_cases)} "
             f"promoted_fact_count={len(validation.promoted_facts)} "
-            f"generation_ready={validation.generation_readiness.get('ready')}"
+            f"product_sheet_ready={validation.product_sheet_readiness.get('ready')}"
         )
 
         workflow.logger.info(
@@ -313,7 +314,7 @@ class TechnicalDossierIngestionWorkflow:
                 review_cases=validation.review_cases,
                 promoted_facts=validation.promoted_facts,
                 extraction_steps_json=extraction.extraction_steps_json,
-                generation_readiness=validation.generation_readiness,
+                product_sheet_readiness=validation.product_sheet_readiness,
             ),
             task_queue=TaskQueue.PRODUCT_LIFECYCLE.value,
             start_to_close_timeout=SHORT_ACTIVITY_TIMEOUT,
@@ -357,6 +358,22 @@ class TechnicalDossierIngestionWorkflow:
             self.state.promoted_fact_count = finalized.promoted_fact_count
 
         self.state.status = WorkflowExecutionStatus.TECHNICAL_FACTS_READY
+        await workflow.execute_activity_method(
+            TechnicalDossierActivities.notify_technical_facts_ready,
+            NotifyTechnicalFactsReadyInput(
+                product=payload.product,
+                ingestion_run_id=prepared.ingestion_run_id,
+                promoted_fact_count=self.state.promoted_fact_count,
+            ),
+            task_queue=TaskQueue.PRODUCT_LIFECYCLE.value,
+            start_to_close_timeout=SHORT_ACTIVITY_TIMEOUT,
+            retry_policy=DB_RETRY_POLICY,
+        )
+        workflow.logger.info(
+            "Technical dossier | facts techniques prêts notifiés | "
+            f"ingestion_run_id={prepared.ingestion_run_id} "
+            f"promoted_fact_count={self.state.promoted_fact_count}"
+        )
 
         return TechnicalDossierIngestionOutput(
             status=self.state.status,

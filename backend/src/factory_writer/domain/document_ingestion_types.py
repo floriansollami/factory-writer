@@ -119,3 +119,10 @@ class TechnicalReviewResolutionAction(enum.StrEnum):
 class TechnicalFactValidationSource(enum.StrEnum):
     SYSTEM = "SYSTEM"
     HUMAN = "HUMAN"
+
+
+class ProductSheetGenerationStatus(enum.StrEnum):
+    EN_COURS = "EN_COURS"
+    TERMINE = "TERMINE"
+    A_VALIDER = "A_VALIDER"
+    ERREUR = "ERREUR"
