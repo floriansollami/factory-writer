@@ -33,7 +33,7 @@
 
         // si deux valeurs différentes et crédibles apparaissent, on bloque au lieu de choisir arbitrairement.
         //   { "value": "220 cm", "confidence": 0.96 },
-        //   { "value": "240 cm", "confidence": 0.82 }
+        //   { "value": "240 cm", "confidence": 0.85 }
         "conflict_policy": "BLOCK_ON_CREDIBLE_CONFLICT",
 
         //  si plusieurs PDFs donnent un SKU valide, on préfère dans cet ordre :

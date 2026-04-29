@@ -1052,9 +1052,6 @@ function ProductSheetDraftCard({
               Génération en cours
             </p>
             <CardTitle className="mt-2 text-2xl">Le draft est en préparation</CardTitle>
-            <p className="mt-2 text-sm leading-6 text-[var(--color-muted)]">
-              LiteLLM appelle Vertex AI avec un output JSON strict. La page se rafraîchit automatiquement.
-            </p>
           </div>
         </div>
       </Card>

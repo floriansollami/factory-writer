@@ -1,42 +1,16 @@
-// system porte maintenant le rôle, les invariants stables, et la sémantique durable des types
-// user porte la mission du run, les données injectées, le protocole de couverture/classification, et les exemples
+// source_evidence_provider_id : identifiant du chunk source Document AI utilisé comme preuve. Exemple c1. Le LLM n’a pas le droit d’inventer cet identifiant.
+// citation_source : extrait exact copié depuis le chunk source. C’est la preuve textuelle de la règle.
+// type_regle : catégorie métier de la règle.
+// VOIX = règle globale de voix de marque.
+// TON = règle liée à une famille produit.
+// FORMATAGE = structure, longueur, mise en forme.
+// PROMESSE_INTERDITE = claim ou formulation interdite.
+// niveau_contrainte : niveau de sévérité.
+// HARD = bloquant, doit être respecté.
+// SOFT = préférence éditoriale.
+// texte_regle : règle reformulée proprement pour être utilisable par le pipeline de génération.
+// famille_code : famille produit ciblée si la règle est spécifique, par exemple mobilier_jardin. Sinon null pour une règle globale.
 
-
-// eval harness
-// C’est un banc de test reproductible.
-// Tu prends un petit corpus de PDFs de référence, avec un attendu métier ou au moins des assertions de couverture, puis tu mesures :
-
-// citations attendues présentes ou non
-// types stables ou non
-// nombre de règles trop bas / trop haut
-// dérive entre plusieurs runs du même document
-// Sans ça, tu peux avoir un prompt qui “a l’air bon” sur un doc, mais qui casse discrètement sur les suivants.
-
-// multi-pass extraction
-// Au lieu de demander au modèle de tout faire d’un coup :
-
-// détecter tous les fragments
-// les classer
-// les dédupliquer
-// les transformer en JSON final
-// tu découpes.
-
-// Exemple :
-
-// pass 1 : inventorier les fragments normatifs explicites
-// pass 2 : classer chaque fragment
-// pass 3 : convertir en règles finales
-// Pourquoi c’est plus SOTA sur les cas durs :
-
-// chaque étape est plus simple
-// moins de fusion accidentelle
-// debug beaucoup plus facile
-// meilleure contrôlabilité
-// En contrepartie :
-
-// plus de coût
-// plus de latence
-// plus de code orchestration
 
 {
   "regles": [
